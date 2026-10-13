@@ -1,0 +1,495 @@
+import { Client, Pool, type PoolClient } from 'pg';
+import { readFileSync, readdirSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { beforeAll, afterAll, expect, test } from 'vitest';
+import { bootstrap } from './bootstrap';
+
+const connection = process.env.FORKCAST_TEST_DATABASE_URL;
+const integration = test.skipIf(!connection);
+let pool: Pool;
+let org: string;
+const users = Array.from({ length: 12 }, () => randomUUID());
+beforeAll(async () => {
+  if (!connection) return;
+  const url = new URL(connection);
+  if (url.hostname !== '127.0.0.1' || url.pathname !== '/postgres')
+    throw new Error('Use an isolated loopback test server with the /postgres database.');
+  const admin = new Client({ connectionString: connection });
+  await admin.connect();
+  // Deliberately fail if this database already exists; never reset an existing DB.
+  await admin.query('create database forkcast_test');
+  await admin.end();
+  url.pathname = '/forkcast_test';
+  pool = new Pool({ connectionString: url.toString(), max: 16 });
+  await pool.query(bootstrap);
+  for (const file of readdirSync(resolve('supabase/migrations')).sort())
+    await pool.query(readFileSync(resolve('supabase/migrations', file), 'utf8'));
+  for (const id of users) await pool.query('insert into auth.users(id) values($1)', [id]);
+  await pool.query('select set_config($1,$2,false)', ['request.jwt.claim.sub', users[0]]);
+  org = (await pool.query("select public.create_organization('Race test','Berlin') as id")).rows[0]
+    .id;
+  for (const user of users.slice(1))
+    await pool.query(
+      'insert into public.organization_memberships(organization_id,user_id) values($1,$2)',
+      [org, user],
+    );
+}, 30000);
+afterAll(async () => {
+  if (pool) await pool.end();
+});
+async function begin(client: PoolClient, user: string) {
+  await client.query('begin');
+  await client.query('set local role authenticated');
+  await client.query('select set_config($1,$2,true)', ['request.jwt.claim.sub', user]);
+}
+
+integration(
+  'a competing signup waits for the event lock and then checks committed capacity',
+  async () => {
+    const event = (
+      await pool.query(
+        "insert into public.cooking_events(organization_id,organizer_id,meal_date,title,max_portions) values($1,$2,current_date+1,'Curry',3) returning id",
+        [org, users[0]],
+      )
+    ).rows[0].id;
+    const first = await pool.connect();
+    const second = await pool.connect();
+    try {
+      const pid = (await second.query('select pg_backend_pid() as pid')).rows[0].pid;
+      await begin(first, users[0]);
+      await begin(second, users[1]);
+      await first.query('select public.set_portions($1,2)', [event]);
+      const waiting = second.query('select public.set_portions($1,2)', [event]).then(
+        () => null,
+        (error) => error,
+      );
+      let blocked = false;
+      for (let i = 0; i < 100; i++) {
+        const state = (
+          await pool.query('select wait_event_type from pg_stat_activity where pid=$1', [pid])
+        ).rows[0];
+        if (state?.wait_event_type === 'Lock') {
+          blocked = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(blocked).toBe(true);
+      await first.query('commit');
+      expect((await waiting)?.message).toContain('Not enough portions');
+      await second.query('rollback');
+      expect(
+        Number(
+          (
+            await pool.query(
+              'select sum(portions) as total from public.cooking_event_participants where event_id=$1',
+              [event],
+            )
+          ).rows[0].total,
+        ),
+      ).toBe(2);
+    } finally {
+      await first.query('rollback');
+      await second.query('rollback');
+      first.release();
+      second.release();
+    }
+  },
+  15000,
+);
+
+integration(
+  'twelve concurrent signups cannot exceed three portions',
+  async () => {
+    const event = (
+      await pool.query(
+        "insert into public.cooking_events(organization_id,organizer_id,meal_date,title,max_portions) values($1,$2,current_date+1,'Pasta',3) returning id",
+        [org, users[0]],
+      )
+    ).rows[0].id;
+    const results = await Promise.allSettled(
+      users.map(async (user) => {
+        const client = await pool.connect();
+        try {
+          await begin(client, user);
+          await client.query('select public.set_portions($1,1)', [event]);
+          await client.query('commit');
+        } catch (e) {
+          await client.query('rollback');
+          throw e;
+        } finally {
+          client.release();
+        }
+      }),
+    );
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(3);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(9);
+    expect(
+      Number(
+        (
+          await pool.query(
+            'select sum(portions) as total from public.cooking_event_participants where event_id=$1',
+            [event],
+          )
+        ).rows[0].total,
+      ),
+    ).toBe(3);
+  },
+  15000,
+);
+
+integration('only one concurrent regional refresh receives the lease', async () => {
+  const results = await Promise.all(
+    users.map(async () => {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        await client.query('set local role service_role');
+        const result = await client.query('select public.claim_osm_refresh($1,$2) as token', [
+          org,
+          'Berlin',
+        ]);
+        await client.query('commit');
+        return result.rows[0].token;
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+    }),
+  );
+  expect(results.filter(Boolean)).toHaveLength(1);
+});
+
+integration('the global OSM gate serializes concurrent requests', async () => {
+  const results = await Promise.all(
+    users.map(async () => {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        await client.query('set local role service_role');
+        const result = await client.query(
+          "select public.claim_osm_request('nominatim') as allowed",
+        );
+        await client.query('commit');
+        return result.rows[0].allowed;
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+    }),
+  );
+  expect(results.filter(Boolean)).toHaveLength(1);
+});
+
+integration('OSM request reservations use the time after a row-lock wait', async () => {
+  await pool.query(
+    "insert into public.osm_request_gate(service,available_at) values('nominatim',now()-interval '1 second') on conflict(service) do update set available_at=excluded.available_at",
+  );
+  const holder = await pool.connect();
+  const request = await pool.connect();
+  try {
+    await holder.query('begin');
+    await holder.query(
+      "select * from public.osm_request_gate where service='nominatim' for update",
+    );
+    await request.query('begin');
+    await request.query('set local role service_role');
+    const waiting = request.query("select public.claim_osm_request('nominatim') as allowed");
+    await new Promise((resolve) => setTimeout(resolve, 1300));
+    await holder.query('commit');
+    expect((await waiting).rows[0].allowed).toBe(true);
+    await request.query('commit');
+    expect(
+      (await pool.query("select public.claim_osm_request('nominatim') as allowed")).rows[0].allowed,
+    ).toBe(false);
+  } finally {
+    await holder.query('rollback');
+    await request.query('rollback');
+    holder.release();
+    request.release();
+  }
+});
+
+integration(
+  'daily response and vote races serialize and never retain a vote after opting out',
+  async () => {
+    const place = {
+      id: 'osm:node:555',
+      provider: 'osm',
+      name: 'Race cafe',
+      latitude: 52.52,
+      longitude: 13.4,
+      types: ['cafe'],
+      category: 'Cafe',
+      address: 'Berlin',
+      hours: [],
+    };
+    await pool.query("insert into public.places(id,provider,metadata) values($1,'osm',$2)", [
+      place.id,
+      place,
+    ]);
+    await pool.query(
+      'insert into public.daily_lunch_options(organization_id,lunch_date,place_id) values($1,public.lunch_day(),$2)',
+      [org, place.id],
+    );
+    const first = await pool.connect(),
+      second = await pool.connect();
+    async function blocked(pid: number) {
+      for (let i = 0; i < 100; i++) {
+        const state = (
+          await pool.query('select wait_event_type from pg_stat_activity where pid=$1', [pid])
+        ).rows[0];
+        if (state?.wait_event_type === 'Lock') return true;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      return false;
+    }
+    try {
+      await begin(first, users[0]);
+      await first.query("select public.set_lunch_response($1,'going_out')", [org]);
+      await first.query('commit');
+      await begin(first, users[0]);
+      await first.query("select public.set_lunch_response($1,'no_lunch')", [org]);
+      await begin(second, users[0]);
+      const pid = (await second.query('select pg_backend_pid() as pid')).rows[0].pid;
+      const vote = second.query('select public.vote_lunch_place($1,$2)', [org, place.id]).then(
+        () => null,
+        (error) => error,
+      );
+      expect(await blocked(pid)).toBe(true);
+      await first.query('commit');
+      expect((await vote)?.message).toContain('going out');
+      await second.query('rollback');
+      await begin(first, users[0]);
+      await first.query("select public.set_lunch_response($1,'going_out')", [org]);
+      await first.query('select public.vote_lunch_place($1,$2)', [org, place.id]);
+      await begin(second, users[0]);
+      const answer = second
+        .query("select public.set_lunch_response($1,'brought_food')", [org])
+        .then(
+          () => null,
+          (error) => error,
+        );
+      expect(await blocked(pid)).toBe(true);
+      await first.query('commit');
+      expect(await answer).toBe(null);
+      await second.query('commit');
+      expect(
+        Number(
+          (
+            await pool.query(
+              'select count(*) as count from public.daily_lunch_votes where organization_id=$1 and user_id=$2 and lunch_date=public.lunch_day()',
+              [org, users[0]],
+            )
+          ).rows[0].count,
+        ),
+      ).toBe(0);
+    } finally {
+      await first.query('rollback');
+      await second.query('rollback');
+      first.release();
+      second.release();
+    }
+  },
+  15000,
+);
+
+integration(
+  'simultaneous saved-place refreshes share one lease and enforce the manual cooldown',
+  async () => {
+    const id = 'osm:node:987654';
+    const metadata = {
+      id,
+      provider: 'osm',
+      name: 'Refresh race',
+      types: ['restaurant', 'cuisine:unknown'],
+    };
+    await pool.query("insert into public.places(id,provider,metadata) values($1,'osm',$2)", [
+      id,
+      metadata,
+    ]);
+    const results = await Promise.all(
+      Array.from({ length: 12 }, () =>
+        pool.query('select * from public.claim_osm_place_refresh($1,false)', [[id]]),
+      ),
+    );
+    const leases = results.flatMap((result) => result.rows);
+    expect(leases).toHaveLength(1);
+    await pool.query('select public.finish_osm_place_refresh($1,$2,true)', [
+      leases[0].token,
+      JSON.stringify([metadata]),
+    ]);
+    expect(
+      (await pool.query('select * from public.claim_osm_place_refresh($1,true)', [[id]])).rows,
+    ).toHaveLength(0);
+  },
+);
+
+integration(
+  'reading one notification does not block payment updates for another notification',
+  async () => {
+    const owner = users[0],
+      colleague = users[1];
+    await pool.query('select set_config($1,$2,false)', ['request.jwt.claim.sub', owner]);
+    const meal = (
+      await pool.query(
+        "select public.create_cooking_event($1,public.lunch_day(),'Signal concurrency',null,3,100,'TestCook') as id",
+        [org],
+      )
+    ).rows[0].id;
+    await pool.query('select public.set_portions($1,1)', [meal]);
+    await pool.query('select set_config($1,$2,false)', ['request.jwt.claim.sub', colleague]);
+    await pool.query('select public.set_portions($1,1)', [meal]);
+    await pool.query('select public.mark_payment($1,true)', [meal]);
+    const own = (
+      await pool.query(
+        "select id from public.notifications where event_id=$1 and recipient_id=$2 and kind='payment_due'",
+        [meal, owner],
+      )
+    ).rows[0].id;
+    const first = await pool.connect(),
+      second = await pool.connect();
+    let payment: Promise<unknown> | undefined;
+    try {
+      await begin(first, owner);
+      await first.query('select public.update_notification($1,$2,false)', [org, own]);
+      await begin(second, colleague);
+      payment = second.query('select public.mark_payment($1,false)', [meal]);
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const completed = await Promise.race([
+        payment.then(() => true),
+        new Promise<boolean>((resolve) => {
+          timeout = setTimeout(() => resolve(false), 1500);
+        }),
+      ]);
+      if (timeout) clearTimeout(timeout);
+      expect(completed).toBe(true);
+      await second.query('commit');
+      await first.query('commit');
+    } finally {
+      await first.query('rollback');
+      await payment?.catch(() => {});
+      await second.query('rollback');
+      first.release();
+      second.release();
+    }
+  },
+);
+
+integration(
+  'a manual answer racing cooking signup waits and remains manual after leaving',
+  async () => {
+    const user = users[9];
+    const meal = (
+      await pool.query(
+        "insert into public.cooking_events(organization_id,organizer_id,meal_date,title) values($1,$2,public.lunch_day(),'Attendance race') returning id",
+        [org, users[0]],
+      )
+    ).rows[0].id;
+    const first = await pool.connect();
+    const second = await pool.connect();
+    let update: Promise<unknown> | undefined;
+    try {
+      await begin(first, user);
+      await first.query('select public.set_portions($1,1)', [meal]);
+      await begin(second, user);
+      let completed = false;
+      update = second
+        .query("select public.set_lunch_response($1,'ordering_in')", [org])
+        .then((result) => {
+          completed = true;
+          return result;
+        });
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      expect(completed).toBe(false);
+      await first.query('commit');
+      await update;
+      await second.query('commit');
+      await begin(first, user);
+      await first.query('select public.set_portions($1,0)', [meal]);
+      await first.query('commit');
+      const answer = (
+        await pool.query(
+          'select choice,from_cooking from public.daily_lunch_responses where organization_id=$1 and lunch_date=public.lunch_day() and user_id=$2',
+          [org, user],
+        )
+      ).rows[0];
+      expect(answer).toMatchObject({ choice: 'ordering_in', from_cooking: false });
+    } finally {
+      await first.query('rollback');
+      await update?.catch(() => {});
+      await second.query('rollback');
+      first.release();
+      second.release();
+    }
+  },
+);
+
+integration.each(['event', 'organization'] as const)(
+  'a signup queued on the %s lock is rejected when the deadline passes before it can write',
+  async (lock) => {
+    const event = (
+      await pool.query(
+        "insert into public.cooking_events(organization_id,organizer_id,meal_date,title,signup_deadline) values($1,$2,current_date+1,'Deadline race',clock_timestamp()+interval '2 seconds') returning id",
+        [org, users[0]],
+      )
+    ).rows[0].id;
+    const holder = await pool.connect();
+    const waiter = await pool.connect();
+    try {
+      const pid = (await waiter.query('select pg_backend_pid() as pid')).rows[0].pid;
+      await holder.query('begin');
+      await holder.query(
+        lock === 'event'
+          ? 'select id from public.cooking_events where id=$1 for update'
+          : 'select id from public.organizations where id=$1 for update',
+        [lock === 'event' ? event : org],
+      );
+      await begin(waiter, users[1]);
+      const waiting = waiter.query('select public.set_portions($1,1)', [event]).then(
+        () => null,
+        (error) => error,
+      );
+      let blocked = false;
+      for (let i = 0; i < 100; i++) {
+        const state = (
+          await pool.query('select wait_event_type from pg_stat_activity where pid=$1', [pid])
+        ).rows[0];
+        if (state?.wait_event_type === 'Lock') {
+          blocked = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(blocked).toBe(true);
+      await pool.query(
+        'select pg_sleep(greatest(0,extract(epoch from signup_deadline-clock_timestamp()))+0.05) from public.cooking_events where id=$1',
+        [event],
+      );
+      await holder.query('commit');
+      expect((await waiting)?.message).toContain('Signup is closed');
+      await waiter.query('rollback');
+      expect(
+        Number(
+          (
+            await pool.query(
+              'select count(*) as total from public.cooking_event_participants where event_id=$1',
+              [event],
+            )
+          ).rows[0].total,
+        ),
+      ).toBe(0);
+    } finally {
+      await holder.query('rollback');
+      await waiter.query('rollback');
+      holder.release();
+      waiter.release();
+    }
+  },
+  15000,
+);

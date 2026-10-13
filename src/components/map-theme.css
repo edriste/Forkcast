@@ -1,0 +1,10 @@
+[data-theme='dark'] .maplibregl-ctrl-attrib {
+  background: rgba(28, 32, 39, 0.94);
+  color: #f2f4f7;
+}
+[data-theme='dark'] .maplibregl-ctrl-attrib a {
+  color: #ffb06b;
+}
+[data-theme='dark'] .maplibregl-ctrl-attrib-button {
+  filter: invert(1);
+}

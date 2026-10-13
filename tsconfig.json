@@ -1,0 +1,18 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "allowImportingTsExtensions": true,
+    "types": ["react", "react-native", "node"]
+  },
+  "include": [
+    "App.tsx",
+    "app.config.ts",
+    "index.ts",
+    "src/**/*",
+    "tests/**/*",
+    "playwright.config.ts",
+    "vitest.config.mts"
+  ],
+  "exclude": ["supabase/functions", "node_modules", "dist", ".expo", "android", "ios"]
+}
