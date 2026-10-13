@@ -656,3 +656,133 @@ integration(
   },
   15000,
 );
+
+integration(
+  'concurrent administrator departures preserve one administrator',
+  async () => {
+    const first = await pool.connect();
+    const second = await pool.connect();
+    try {
+      await begin(first, users[0]);
+      const group = (
+        await first.query("select public.create_organization('Leave race','Berlin') as id")
+      ).rows[0].id;
+      await first.query('commit');
+      await pool.query(
+        "insert into public.organization_memberships(organization_id,user_id,role) values($1,$2,'admin')",
+        [group, users[1]],
+      );
+      await begin(first, users[0]);
+      await first.query('select public.leave_organization($1)', [group]);
+      await begin(second, users[1]);
+      const waiting = second.query('select public.leave_organization($1)', [group]).then(
+        () => null,
+        (e) => e,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await first.query('commit');
+      expect((await waiting)?.message).toContain('at least one');
+      await second.query('rollback');
+      expect(
+        (
+          await pool.query(
+            "select * from public.organization_memberships where organization_id=$1 and role='admin'",
+            [group],
+          )
+        ).rows,
+      ).toHaveLength(1);
+    } finally {
+      await first.query('rollback');
+      await second.query('rollback');
+      first.release();
+      second.release();
+    }
+  },
+  15000,
+);
+
+integration(
+  'removal invalidates queued invitations, attendance edits and cooking signups',
+  async () => {
+    const first = await pool.connect();
+    const second = await pool.connect();
+    try {
+      await begin(first, users[0]);
+      const group = (
+        await first.query("select public.create_organization('Removal race','Berlin') as id")
+      ).rows[0].id;
+      const meal = (
+        await first.query(
+          "select public.create_cooking_event($1,public.lunch_day(),'Race meal',null,5) as id",
+          [group],
+        )
+      ).rows[0].id;
+      await first.query('commit');
+      const pid = (await second.query('select pg_backend_pid() as pid')).rows[0].pid;
+      for (const action of ['invite', 'attendance', 'cooking']) {
+        await pool.query(
+          'insert into public.organization_memberships(organization_id,user_id) values($1,$2)',
+          [group, users[1]],
+        );
+        const code = (
+          await pool.query(
+            'select code from public.organization_invites where organization_id=$1',
+            [group],
+          )
+        ).rows[0].code;
+        await begin(first, users[0]);
+        await first.query('select public.remove_organization_member($1,$2)', [group, users[1]]);
+        await begin(second, users[1]);
+        const queued = (
+          action === 'invite'
+            ? second.query('select public.join_organization($1)', [code])
+            : action === 'attendance'
+              ? second.query("select public.set_lunch_response($1,'going_out')", [group])
+              : second.query('select public.set_portions($1,1)', [meal])
+        ).then(
+          () => null,
+          (e) => e,
+        );
+        let blocked = false;
+        for (let i = 0; i < 100; i++) {
+          if (
+            (await pool.query('select wait_event_type from pg_stat_activity where pid=$1', [pid]))
+              .rows[0]?.wait_event_type === 'Lock'
+          ) {
+            blocked = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        expect(blocked).toBe(true);
+        await first.query('commit');
+        expect((await queued)?.message).toContain(
+          action === 'invite' ? 'invalid' : 'access denied',
+        );
+        await second.query('rollback');
+      }
+      expect(
+        (
+          await pool.query(
+            'select * from public.cooking_event_participants where event_id=$1 and user_id=$2',
+            [meal, users[1]],
+          )
+        ).rows,
+      ).toHaveLength(0);
+      expect(
+        (
+          await pool.query(
+            'select * from public.daily_lunch_responses where organization_id=$1 and user_id=$2',
+            [group, users[1]],
+          )
+        ).rows,
+      ).toHaveLength(0);
+    } finally {
+      await first.query('rollback');
+      await second.query('rollback');
+      first.release();
+      second.release();
+    }
+  },
+  15000,
+);

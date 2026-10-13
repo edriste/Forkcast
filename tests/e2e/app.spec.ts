@@ -82,7 +82,12 @@ async function realtime(page: Page, harness?: LiveHarness) {
     });
     harness.close = () => socket.close({ code: 1001, reason: 'Simulated reconnect' });
     harness.emit = (subject, organizationId = orgId) => {
-      const table = subject === 'inbox' ? 'inbox_signals' : 'organization_signals';
+      const table =
+        subject === 'membership'
+          ? 'membership_signals'
+          : subject === 'inbox'
+            ? 'inbox_signals'
+            : 'organization_signals';
       const binding = bindings.find(
         (binding) => binding.table === table && binding.event === 'UPDATE',
       );
@@ -110,6 +115,7 @@ async function realtime(page: Page, harness?: LiveHarness) {
               record: {
                 organization_id: organizationId,
                 recipient_id: userId,
+                user_id: userId,
                 topic: subject,
                 revision: 2,
               },
@@ -166,7 +172,7 @@ async function backend(
     {
       organization_id: orgId,
       user_id: '00000000-0000-0000-0000-000000000002',
-      role: 'member',
+      role: options.organizationRole === 'member' ? 'admin' : 'member',
       profiles: { display_name: 'Bob' },
     },
     ...(options.multipleOrganizations
@@ -347,7 +353,13 @@ async function backend(
       await route.fulfill({ status: 204 });
       return;
     } else if (url.pathname === '/rest/v1/organizations')
-      result = group ? [groupRecord, ...(options.multipleOrganizations ? [otherOrg] : [])] : [];
+      result = group
+        ? [groupRecord, ...(options.multipleOrganizations ? [otherOrg] : [])].filter((group) =>
+            organizationMembers.some(
+              (member) => member.user_id === userId && member.organization_id === group.id,
+            ),
+          )
+        : [];
     else if (url.pathname === '/rest/v1/organization_memberships') {
       result = group
         ? organizationMembers.filter(
@@ -358,6 +370,17 @@ async function backend(
                 url.searchParams.get('organization_id') === `eq.${member.organization_id}`),
           )
         : [];
+    } else if (
+      url.pathname === '/rest/v1/rpc/remove_organization_member' ||
+      url.pathname === '/rest/v1/rpc/leave_organization'
+    ) {
+      const body = route.request().postDataJSON();
+      const index = organizationMembers.findIndex(
+        (member) =>
+          member.organization_id === body.org && member.user_id === (body.member ?? userId),
+      );
+      if (index >= 0) organizationMembers.splice(index, 1);
+      result = null;
     } else if (url.pathname === '/rest/v1/rpc/set_organization_member_role') {
       const body = route.request().postDataJSON();
       const member = organizationMembers.find(
@@ -2982,11 +3005,15 @@ test('administrators who did not create the organization manage colleagues and c
   await page.getByRole('button', { name: 'Get invite', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Rotate invite code', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Members & roles', exact: true }).click();
+  await page.getByRole('button', { name: 'Manage Alice', exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Make Alice a member', exact: true }),
   ).toBeDisabled();
+  await page.getByRole('button', { name: 'Close member dialog', exact: true }).last().click();
+  await page.getByRole('button', { name: 'Manage Bob', exact: true }).click();
   await page.getByRole('button', { name: 'Make Bob an administrator', exact: true }).click();
   await expect(page.getByText('2 members · 2 administrators', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Manage Alice', exact: true }).click();
   await page.getByRole('button', { name: 'Make Alice a member', exact: true }).click();
   await expect(page.getByText('2 members · 1 administrator', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /Make .* (member|administrator)/ })).toHaveCount(0);
@@ -3027,6 +3054,7 @@ test.describe('German organization roles', () => {
     await page.getByRole('button', { name: 'Anmelden', exact: true }).click();
     await page.getByRole('tab', { name: /Dein Team/ }).click();
     await page.getByRole('button', { name: 'Mitglieder & Rollen', exact: true }).click();
+    await page.getByRole('button', { name: 'Bob verwalten', exact: true }).click();
     await page.getByRole('button', { name: 'Bob zum Administrator machen', exact: true }).click();
     await expect(page.getByText('2 Mitglieder · 2 Administratoren', { exact: true })).toBeVisible();
     await page.screenshot({ path: '/tmp/forkcast-roles-german.png', fullPage: true });
@@ -3063,26 +3091,165 @@ test('organization role changes from another administrator refresh the open scre
   await signIn(page, 'Overview');
   await page.getByRole('tab', { name: /Your team/ }).click();
   await page.getByRole('button', { name: 'Members & roles', exact: true }).click();
-  await expect(
-    page.getByRole('button', { name: 'Make Alice a member', exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Manage Alice', exact: true })).toBeVisible();
   await expect.poll(() => live.joins ?? 0).toBeGreaterThan(0);
   role = 'member';
   live.emit!('organization');
-  await expect(page.getByRole('button', { name: 'Make Alice a member', exact: true })).toHaveCount(
-    0,
-  );
+  await expect(page.getByRole('button', { name: 'Manage Alice', exact: true })).toHaveCount(0);
   await expect(
     page.getByRole('button', { name: 'Set organization location', exact: true }),
   ).toHaveCount(0);
   await expect(page.getByText('2 members · 1 administrator', { exact: true })).toBeVisible();
   role = 'admin';
   live.emit!('organization');
-  await expect(
-    page.getByRole('button', { name: 'Make Alice a member', exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Manage Alice', exact: true })).toBeVisible();
   await expect(
     page.getByRole('button', { name: 'Set organization location', exact: true }),
+  ).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('administrators remove members after confirmation and clear the old invitation', async ({
+  page,
+}) => {
+  const errors = await backend(page);
+  await signIn(page, 'Overview');
+  await page.getByRole('tab', { name: /Your team/ }).click();
+  await page.getByRole('button', { name: 'Invite colleagues', exact: true }).click();
+  await page.getByRole('button', { name: 'Get invite', exact: true }).click();
+  await page.getByRole('button', { name: 'Members & roles', exact: true }).click();
+  await page.getByRole('button', { name: 'Manage Bob', exact: true }).click();
+  await page.getByRole('button', { name: 'Remove from organization', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Remove member?', exact: true });
+  await expect(dialog.getByText(/The invitation code will be rotated/)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Remove from organization', exact: true }).click();
+  const request = page.waitForRequest('**/rpc/remove_organization_member');
+  await dialog.getByRole('button', { name: 'Remove access', exact: true }).click();
+  expect((await request).postDataJSON()).toEqual({
+    org: orgId,
+    member: '00000000-0000-0000-0000-000000000002',
+  });
+  await expect(page.getByText('1 member · 1 administrator', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Manage Bob', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Rotate invite code', exact: true })).toHaveCount(
+    0,
+  );
+  await expect(
+    page.getByRole('button', { name: 'Leave organization', exact: true }),
+  ).toBeDisabled();
+  expect(errors).toEqual([]);
+});
+
+test('a member can leave their only organization and return to joining or creating a group', async ({
+  page,
+}) => {
+  const errors = await backend(page, { organizationRole: 'member' });
+  await signIn(page, 'Overview');
+  await page.getByRole('tab', { name: /Your team/ }).click();
+  await page.getByRole('button', { name: 'Members & roles', exact: true }).click();
+  await page.getByRole('button', { name: 'Leave organization', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Leave Office team?', exact: true });
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByText('Alice · You', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Leave organization', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Confirm leaving', exact: true }).click();
+  await expect(page.getByText('Pull up a chair.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Join organization', exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('Pull up a chair.', { exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('leaving the selected organization switches to another membership', async ({ page }) => {
+  const errors = await backend(page, { organizationRole: 'member', multipleOrganizations: true });
+  await signIn(page, 'Overview');
+  await page.getByRole('tab', { name: /Your team/ }).click();
+  await page.getByRole('button', { name: 'Members & roles', exact: true }).click();
+  await page.getByRole('button', { name: 'Leave organization', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm leaving', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Switch organization. Current: Other team', exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole('button', { name: 'Switch organization. Current: Other team', exact: true }),
+  ).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('a private membership signal clears a revoked organization even though its group signal is inaccessible', async ({
+  page,
+}) => {
+  const live: LiveHarness = {};
+  const errors = await backend(page, { live });
+  await signIn(page, 'Overview');
+  await expect.poll(() => live.joins ?? 0).toBeGreaterThan(0);
+  await page.route('https://forkcast-test.supabase.co/rest/v1/organizations**', (route) =>
+    route.fulfill({ json: [] }),
+  );
+  await page.route(
+    'https://forkcast-test.supabase.co/rest/v1/organization_memberships**',
+    (route) => route.fulfill({ json: [] }),
+  );
+  live.emit!('membership');
+  await expect(page.getByText('Pull up a chair.', { exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test.describe('German member management', () => {
+  test.use({ locale: 'de-DE' });
+  test('removal and leaving dialogs follow the system language', async ({ page }) => {
+    const errors = await backend(page);
+    await page.goto('/');
+    await page.getByLabel('E-Mail', { exact: true }).fill('alice@example.test');
+    await page.getByLabel('Passwort', { exact: true }).fill('password123');
+    await page.getByRole('button', { name: 'Anmelden', exact: true }).click();
+    await page.getByRole('tab', { name: /Dein Team/ }).click();
+    await page.getByRole('button', { name: 'Mitglieder & Rollen', exact: true }).click();
+    await page.getByRole('button', { name: 'Bob verwalten', exact: true }).click();
+    await page.getByRole('button', { name: 'Aus Organisation entfernen', exact: true }).click();
+    await expect(
+      page.getByRole('dialog', { name: 'Mitglied entfernen?', exact: true }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Zugriff entziehen', exact: true }).click();
+    await expect(page.getByText('1 Mitglied · 1 Administrator', { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Organisation verlassen', exact: true }),
+    ).toBeDisabled();
+    await page.screenshot({ path: '/tmp/forkcast-members-german.png', fullPage: true });
+    expect(errors).toEqual([]);
+  });
+});
+
+test('the no-organization screen picks up a membership created on another device', async ({
+  page,
+}) => {
+  const live: LiveHarness = {};
+  const errors = await backend(page, { group: false, live });
+  await signIn(page, 'Overview');
+  await expect.poll(() => live.joins ?? 0).toBeGreaterThan(0);
+  await page.route('https://forkcast-test.supabase.co/rest/v1/organizations**', (route) =>
+    route.fulfill({ json: [org] }),
+  );
+  await page.route(
+    'https://forkcast-test.supabase.co/rest/v1/organization_memberships**',
+    (route) =>
+      route.fulfill({
+        json: [
+          {
+            organization_id: orgId,
+            user_id: userId,
+            role: 'member',
+            profiles: { display_name: 'Alice' },
+          },
+        ],
+      }),
+  );
+  live.emit!('membership');
+  await expect(page.getByRole('tab', { name: /Overview/ })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Switch organization. Current: Office team', exact: true }),
   ).toBeVisible();
   expect(errors).toEqual([]);
 });

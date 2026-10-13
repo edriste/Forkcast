@@ -79,6 +79,23 @@ export function LiveUpdatesProvider({ children }: React.PropsWithChildren) {
         );
         next.on(
           'postgres_changes',
+          {
+            event,
+            schema: 'public',
+            table: 'membership_signals',
+            filter: `user_id=eq.${user}`,
+          },
+          (payload) => {
+            if (
+              alive &&
+              channel === next &&
+              (payload.new as Record<string, unknown>).user_id === user
+            )
+              emit('organization');
+          },
+        );
+        next.on(
+          'postgres_changes',
           { event, schema: 'public', table: 'inbox_signals', filter: `recipient_id=eq.${user}` },
           (payload) => {
             const record = payload.new as Record<string, unknown>;

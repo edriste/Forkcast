@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { Linking, Pressable, Share, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
+import { useAutomaticRefresh } from '../providers/LiveUpdates';
 import { useOrganizations } from '../providers/Organizations';
 import { OrganizationMembers } from '../components/OrganizationMembers';
 import { SearchAreaSettings } from '../components/SearchAreaSettings';
@@ -63,6 +64,7 @@ export function OrganizationScreen() {
   const [location, setLocation] = useState<OfficeLocation | null>(null);
   const [code, setCode] = useState('');
   const [invite, setInvite] = useState('');
+  useAutomaticRefresh(() => setInvite(''), ['organization'], !!orgs.current);
   useEffect(() => {
     if (orgs.pendingInvite) setCode(orgs.pendingInvite);
   }, [orgs.pendingInvite]);
@@ -114,7 +116,7 @@ export function OrganizationScreen() {
             title={t('Members & roles')}
             icon="people-outline"
           >
-            <OrganizationMembers key={orgs.current.id} />
+            <OrganizationMembers key={orgs.current.id} onAccessChanged={() => setInvite('')} />
           </OrganizationSection>
         )}
         {orgs.current && (

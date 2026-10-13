@@ -2090,3 +2090,95 @@ test('roles backfill creators and support transferring administration without cr
   );
   expect(await scalar('select public.is_organization_admin($1) as value', [legacy])).toBe(true);
 });
+
+test('members can leave, administrators revoke access, and history and a last administrator remain', async () => {
+  await login(alice);
+  const group = await scalar<string>(
+    "select public.create_organization('Members','Berlin') as value",
+  );
+  const code = await scalar<string>('select public.organization_invite($1) as value', [group]);
+  await login(bob);
+  await db.query('select public.join_organization($1)', [code]);
+  await expect(
+    db.query('select public.remove_organization_member($1,$2)', [group, alice]),
+  ).rejects.toThrow('Only organization administrators');
+  await expect(
+    db.query('select public.delete_organization_membership($1,$2)', [group, alice]),
+  ).rejects.toThrow();
+  await expect(
+    db.query('delete from public.organization_memberships where organization_id=$1', [group]),
+  ).rejects.toThrow();
+  await db.exec('reset role');
+  await db.query(
+    "insert into public.osm_region_cache(organization_id,area_query,places) values($1,'Berlin',$2)",
+    [group, [{ id: 'osm:node:1' }]],
+  );
+  await login(bob);
+  await db.query("select public.add_review($1,'osm:node:1',4,null,'Retained review')", [group]);
+  const meal = await scalar<string>(
+    "select public.create_cooking_event($1,public.lunch_day(),'Retained lunch',null,4) as value",
+    [group],
+  );
+  await db.query('select public.set_portions($1,1)', [meal]);
+  await db.query('select public.leave_organization($1)', [group]);
+  expect(
+    (await db.query('select * from public.organizations where id=$1', [group])).rows,
+  ).toHaveLength(0);
+  expect(
+    (await db.query('select * from public.reviews where organization_id=$1', [group])).rows,
+  ).toHaveLength(0);
+  await expect(db.query('select public.notification_inbox($1)', [group])).rejects.toThrow(
+    'access denied',
+  );
+  await expect(db.query('select public.set_portions($1,2)', [meal])).rejects.toThrow(
+    'access denied',
+  );
+  const signals = (await db.query<{ user_id: string }>('select * from public.membership_signals'))
+    .rows;
+  expect(signals).toHaveLength(1);
+  expect(signals[0].user_id).toBe(bob);
+  await expect(db.query('update public.membership_signals set revision=999')).rejects.toThrow();
+  await db.query('select public.join_organization($1)', [code]);
+  await login(alice);
+  expect(
+    (await db.query('select * from public.reviews where organization_id=$1', [group])).rows,
+  ).toHaveLength(1);
+  expect(
+    (await db.query('select * from public.cooking_event_participants where event_id=$1', [meal]))
+      .rows,
+  ).toHaveLength(1);
+  await expect(db.query('select public.leave_organization($1)', [group])).rejects.toThrow(
+    'at least one',
+  );
+  await expect(
+    db.query('select public.remove_organization_member($1,$2)', [group, alice]),
+  ).rejects.toThrow('Use Leave organization');
+  await db.query('select public.remove_organization_member($1,$2)', [group, bob]);
+  const rotated = await scalar<string>('select public.organization_invite($1) as value', [group]);
+  expect(rotated).not.toBe(code);
+  await login(bob);
+  await expect(db.query('select public.join_organization($1)', [code])).rejects.toThrow('invalid');
+  await expect(
+    db.query("select public.set_restaurant_favorite($1,'osm:node:1',true)", [group]),
+  ).rejects.toThrow('access denied');
+  expect(
+    (await db.query('select * from public.organization_signals where organization_id=$1', [group]))
+      .rows,
+  ).toHaveLength(0);
+  expect(
+    (await db.query<{ user_id: string }>('select * from public.membership_signals')).rows,
+  ).toHaveLength(1);
+  await db.query('select public.join_organization($1)', [rotated]);
+  await login(alice);
+  await db.query("select public.set_organization_member_role($1,$2,'admin')", [group, bob]);
+  await db.query('select public.leave_organization($1)', [group]);
+  await login(bob);
+  expect(await scalar('select public.is_organization_admin($1) as value', [group])).toBe(true);
+  await expect(db.query('select public.leave_organization($1)', [group])).rejects.toThrow(
+    'at least one',
+  );
+  await login(outsider);
+  await expect(db.query('select public.leave_organization($1)', [group])).rejects.toThrow(
+    'access denied',
+  );
+});

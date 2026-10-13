@@ -8,12 +8,14 @@ export function LunchDialog({
   title,
   onClose,
   busy = false,
+  closeLabel,
   children,
 }: React.PropsWithChildren<{
   visible: boolean;
   title: string;
   onClose: () => void;
   busy?: boolean;
+  closeLabel?: string;
 }>) {
   const { width, height } = useWindowDimensions();
   const { colors } = useTheme();
@@ -33,7 +35,7 @@ export function LunchDialog({
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={t('Close lunch dialog')}
+          accessibilityLabel={closeLabel ?? t('Close lunch dialog')}
           disabled={busy}
           onPress={close}
           style={{
@@ -60,7 +62,7 @@ export function LunchDialog({
         >
           <SectionHeading title={title}>
             <IconAction
-              title={t('Close lunch dialog')}
+              title={closeLabel ?? t('Close lunch dialog')}
               icon="close-outline"
               disabled={busy}
               onPress={close}

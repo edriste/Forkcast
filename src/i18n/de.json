@@ -719,5 +719,19 @@
   "1 member": "1 Mitglied",
   "{count} members": "{count} Mitglieder",
   "1 administrator": "1 Administrator",
-  "{count} administrators": "{count} Administratoren"
+  "{count} administrators": "{count} Administratoren",
+  "Manage {name}": "{name} verwalten",
+  "Manage member": "Mitglied verwalten",
+  "Close member dialog": "Mitgliederdialog schließen",
+  "Leave organization": "Organisation verlassen",
+  "Make another member an administrator before leaving.": "Ernenne vor dem Verlassen ein anderes Mitglied zum Administrator.",
+  "Remove from organization": "Aus Organisation entfernen",
+  "Leave {name}?": "{name} verlassen?",
+  "Remove member?": "Mitglied entfernen?",
+  "You will lose access to this organization. Your reviews, cooking signups and payment records will stay with the organization.": "Du verlierst den Zugriff auf diese Organisation. Deine Bewertungen, Kochanmeldungen und Zahlungsdaten bleiben in der Organisation erhalten.",
+  "{name} will lose access. Their reviews, cooking signups and payment records will stay. The invitation code will be rotated, so earlier invitations stop working.": "{name} verliert den Zugriff. Bewertungen, Kochanmeldungen und Zahlungsdaten bleiben erhalten. Der Einladungscode wird erneuert; bisherige Einladungen werden ungültig.",
+  "Confirm leaving": "Verlassen bestätigen",
+  "Remove access": "Zugriff entziehen",
+  "Only organization administrators can remove members": "Nur Administratoren können Mitglieder entfernen",
+  "Use Leave organization to leave yourself": "Nutze Organisation verlassen, um selbst auszutreten"
 }
