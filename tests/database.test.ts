@@ -1821,3 +1821,180 @@ test('organizers receive new-signup alerts for colleagues, including free meals,
   expect(rejoined[0].id).not.toBe(joined.id);
   expect(rejoined[0].read_at).toBeNull();
 });
+
+test('personal favorites are private, validated and nominate unreviewed places after cache eviction', async () => {
+  await login(alice);
+  const favoriteOrg = await scalar<string>(
+    "select public.create_organization('Favorite team','Berlin') as value",
+  );
+  const code = await scalar<string>('select public.organization_invite($1) as value', [
+    favoriteOrg,
+  ]);
+  await login(bob);
+  await db.query('select public.join_organization($1)', [code]);
+  const id = 'osm:node:900001';
+  const source = {
+    id,
+    provider: 'osm',
+    name: 'Bookmarked cafe',
+    latitude: 52.52,
+    longitude: 13.4,
+    types: ['restaurant', 'cuisine:thai'],
+    category: 'Restaurant · Thai',
+    address: 'Berlin',
+    hours: [],
+  };
+  await db.exec('reset role');
+  await db.query(
+    "insert into public.places(id,provider,metadata,refreshed_at) values($1,'osm',$2,now())",
+    [id, source],
+  );
+  await db.query(
+    "insert into public.osm_region_cache(organization_id,area_query,places,refreshed_at) values($1,'Berlin',$2,now())",
+    [favoriteOrg, [source]],
+  );
+  await login(alice);
+  await db.query('select public.set_restaurant_favorite($1,$2,true)', [favoriteOrg, id]);
+  await db.query('select public.set_restaurant_favorite($1,$2,true)', [favoriteOrg, id]);
+  expect(
+    (
+      await db.query('select place_id from public.restaurant_favorites where organization_id=$1', [
+        favoriteOrg,
+      ])
+    ).rows,
+  ).toEqual([{ place_id: id }]);
+  expect((await db.query('select id from public.places where id=$1', [id])).rows).toEqual([{ id }]);
+  await expect(
+    db.query('select public.set_restaurant_favorite($1,$2,null)', [favoriteOrg, id]),
+  ).rejects.toThrow('Choose whether');
+  await expect(
+    db.query('select public.set_restaurant_favorite($1,$2,true)', [
+      favoriteOrg,
+      'old-google-place',
+    ]),
+  ).rejects.toThrow('Bookmark a restaurant');
+  await expect(
+    db.query(
+      'insert into public.restaurant_favorites(organization_id,user_id,place_id) values($1,$2,$3)',
+      [favoriteOrg, bob, id],
+    ),
+  ).rejects.toThrow('permission denied');
+  await db.exec('reset role');
+  await db.query('delete from public.osm_region_cache where organization_id=$1', [favoriteOrg]);
+  await login(bob);
+  expect(
+    (
+      await db.query('select * from public.restaurant_favorites where organization_id=$1', [
+        favoriteOrg,
+      ])
+    ).rows,
+  ).toHaveLength(0);
+  expect((await db.query('select id from public.places where id=$1', [id])).rows).toHaveLength(0);
+  await expect(
+    db.query('select public.set_restaurant_favorite($1,$2,true)', [favoriteOrg, id]),
+  ).rejects.toThrow('Bookmark a restaurant');
+  await db.query('select public.set_restaurant_favorite($1,$2,false)', [favoriteOrg, id]);
+  await login(alice);
+  expect(
+    (
+      await db.query('select place_id from public.restaurant_favorites where organization_id=$1', [
+        favoriteOrg,
+      ])
+    ).rows,
+  ).toHaveLength(1);
+  await db.query('select public.suggest_lunch_place($1,$2)', [favoriteOrg, id]);
+  await db.query('select public.set_restaurant_favorite($1,$2,false)', [favoriteOrg, id]);
+  const options = await scalar<{ options: { place: { id: string } }[] }>(
+    'select public.lunch_overview($1) as value',
+    [favoriteOrg],
+  );
+  expect(options.options.map((option) => option.place.id)).toEqual([id]);
+  await login(bob);
+  expect((await db.query('select id from public.places where id=$1', [id])).rows).toEqual([{ id }]);
+  await db.query('select public.set_restaurant_favorite($1,$2,true)', [favoriteOrg, id]);
+  await login(outsider);
+  await expect(
+    db.query('select public.set_restaurant_favorite($1,$2,true)', [favoriteOrg, id]),
+  ).rejects.toThrow('access denied');
+  await expect(
+    db.query('select public.set_restaurant_favorite($1,$2,true)', [otherOrg, id]),
+  ).rejects.toThrow('Bookmark a restaurant');
+  expect((await db.query('select id from public.places where id=$1', [id])).rows).toHaveLength(0);
+  await db.exec('reset role;set role anon');
+  await expect(db.query('select * from public.restaurant_favorites')).rejects.toThrow(
+    'permission denied',
+  );
+  await expect(
+    db.query('select public.set_restaurant_favorite($1,$2,true)', [favoriteOrg, id]),
+  ).rejects.toThrow('permission denied');
+  await db.exec('reset role');
+  await db.query('delete from public.organizations where id=$1', [favoriteOrg]);
+  await db.query('delete from public.places where id=$1', [id]);
+});
+
+test('favorites refresh through private signals without inbox notifications or redundant writes', async () => {
+  await login(alice);
+  const favoriteOrg = await scalar<string>(
+    "select public.create_organization('Favorite signals','Berlin') as value",
+  );
+  const id = 'osm:node:900002';
+  const source = {
+    id,
+    provider: 'osm',
+    name: 'Private favorite',
+    latitude: 52.52,
+    longitude: 13.4,
+    types: ['restaurant'],
+    category: 'Restaurant',
+    address: 'Berlin',
+    hours: [],
+  };
+  await db.exec('reset role');
+  await db.query(
+    "insert into public.places(id,provider,metadata,refreshed_at) values($1,'osm',$2,now())",
+    [id, source],
+  );
+  await db.query(
+    "insert into public.osm_region_cache(organization_id,area_query,places) values($1,'Berlin',$2)",
+    [favoriteOrg, [source]],
+  );
+  await login(alice);
+  await db.query('select public.set_restaurant_favorite($1,$2,true)', [favoriteOrg, id]);
+  const revision = () =>
+    scalar(
+      'select revision as value from public.inbox_signals where organization_id=$1 and recipient_id=$2',
+      [favoriteOrg, alice],
+    );
+  const first = await revision();
+  await db.query('select public.set_restaurant_favorite($1,$2,true)', [favoriteOrg, id]);
+  expect(await revision()).toBe(first);
+  expect(
+    await scalar(
+      'select count(*)::int as value from public.notifications where organization_id=$1',
+      [favoriteOrg],
+    ),
+  ).toBe(0);
+  await expect(
+    db.query('select public.bump_favorite_signal($1,$2,gen_random_uuid())', [favoriteOrg, bob]),
+  ).rejects.toThrow('permission denied');
+  await db.exec('reset role');
+  await db.query(
+    "update public.places set metadata=metadata||jsonb_build_object('name','Updated favorite') where id=$1",
+    [id],
+  );
+  await login(alice);
+  expect(Number(await revision())).toBe(Number(first) + 1);
+  await db.query('select public.set_restaurant_favorite($1,$2,false)', [favoriteOrg, id]);
+  const removed = await revision();
+  expect(Number(removed)).toBe(Number(first) + 2);
+  await db.query('select public.set_restaurant_favorite($1,$2,false)', [favoriteOrg, id]);
+  expect(await revision()).toBe(removed);
+  await login(bob);
+  expect(
+    (await db.query('select * from public.inbox_signals where organization_id=$1', [favoriteOrg]))
+      .rows,
+  ).toHaveLength(0);
+  await db.exec('reset role');
+  await db.query('delete from public.organizations where id=$1', [favoriteOrg]);
+  await db.query('delete from public.places where id=$1', [id]);
+});

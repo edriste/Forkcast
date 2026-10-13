@@ -1,4 +1,7 @@
 import { useLocale } from '../providers/Locale';
+import { useFavorites } from '../providers/Favorites';
+import { FavoriteButton } from '../components/FavoriteButton';
+import { SectionHeading } from '../components/compact';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -35,6 +38,7 @@ export function PlaceScreen({
   const { styles } = useTheme();
 
   const org = useOrganizations().current!;
+  const favorites = useFavorites();
   const action = useAction();
   const session = useSession();
   const id = route.params.placeId;
@@ -76,7 +80,7 @@ export function PlaceScreen({
       warning: result.warning,
     };
   }, [org.id, id, session.user.id]);
-  const resource = useResource(load, ['places', 'organization']);
+  const resource = useResource(load, ['places', 'organization', 'inbox']);
   useEffect(() => {
     dirty.current = false;
     reviewPages.current = 1;
@@ -93,14 +97,24 @@ export function PlaceScreen({
   if (resource.loading && !place) return <Loading />;
   return (
     <Page>
-      <Notice error={resource.error || action.error || resource.data?.warning} />
+      <Notice error={resource.error || action.error || favorites.error || resource.data?.warning} />
       {(resource.error || resource.data?.warning) && (
         <Button secondary title={t('Retry details')} onPress={resource.reload} />
+      )}
+      {favorites.error && (
+        <Button
+          secondary
+          title={t('Retry favorites')}
+          onPress={favorites.reload}
+          busy={favorites.loading}
+        />
       )}
       {place && (
         <Card>
           <Text style={styles.badge}>{placeCategory(place).toUpperCase()}</Text>
-          <Text style={styles.title}>{place.name}</Text>
+          <SectionHeading large title={place.name}>
+            {place.provider === 'osm' && <FavoriteButton id={place.id} name={place.name} />}
+          </SectionHeading>
           <Text style={styles.subtitle}>{place.address}</Text>
           {place.provider === 'osm' && !place.hours.length && (
             <Text style={styles.subtitle}>{t('Opening hours not listed.')}</Text>

@@ -138,6 +138,7 @@ async function backend(
     signupDeadline?: string | null;
     confirmedPayment?: boolean;
     organizerSignups?: boolean;
+    favorited?: boolean;
     sourceUpdates?: boolean;
     live?: LiveHarness;
   } = {},
@@ -180,6 +181,7 @@ async function backend(
     hours: [],
     attributions: [],
   };
+  const favoriteIds = new Map<string, string[]>([[orgId, options.favorited ? [place.id] : []]]);
   const lunch = new Map<
     string,
     {
@@ -384,6 +386,16 @@ async function backend(
               ),
               failed: [],
             };
+    } else if (url.pathname === '/rest/v1/restaurant_favorites') {
+      const selectedOrg = url.searchParams.get('organization_id')?.replace(/^eq\./, '') ?? orgId;
+      result = (favoriteIds.get(selectedOrg) ?? []).map((place_id) => ({ place_id }));
+    } else if (url.pathname === '/rest/v1/rpc/set_restaurant_favorite') {
+      const body = route.request().postDataJSON();
+      const ids = new Set(favoriteIds.get(body.org) ?? []);
+      if (body.bookmarked) ids.add(body.osm_place_id);
+      else ids.delete(body.osm_place_id);
+      favoriteIds.set(body.org, [...ids].sort());
+      result = null;
     } else if (url.pathname === '/rest/v1/rpc/notification_inbox') {
       const visible = route.request().postDataJSON().org === orgId ? notices : [];
       result = {
@@ -1116,7 +1128,7 @@ test('system appearance switches live without losing typed credentials', async (
   await expect(primary).toHaveCSS('background-color', 'rgb(255, 163, 71)');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await page.getByRole('tab', { name: /Places/ }).click();
-  await expect(page.getByText('Where’s lunch?', { exact: true })).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'Map view', exact: true })).toBeVisible();
   await expect(
     page.getByRole('button', { name: 'Find a place & add a review', exact: true }),
   ).toHaveCSS('background-color', 'rgb(48, 39, 31)');
@@ -1269,9 +1281,9 @@ test('system language changes live, preserves credentials and falls back to Engl
   await expect(page.getByLabel('Email', { exact: true })).toHaveValue('alice@example.test');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await page.getByRole('tab', { name: /Places/ }).click();
-  await expect(page.getByText('Where’s lunch?', { exact: true })).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'Map view', exact: true })).toBeVisible();
   await changeLanguage(['de-AT']);
-  await expect(page.getByText('Wo gibt’s Mittagessen?', { exact: true })).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'Kartenansicht', exact: true })).toBeVisible();
   await expect(page.getByRole('tab', { name: /Dein Team/ })).toBeVisible();
   expect(errors).toEqual([]);
 });
@@ -1497,6 +1509,7 @@ test('organization dropdown dismisses without changing filters and supports mana
     'aria-selected',
     'true',
   );
+  await page.getByRole('button', { name: 'Start a lunch circle', exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Create organization', exact: true }),
   ).toBeVisible();
@@ -2776,6 +2789,136 @@ test.describe('German payment and signup alerts', () => {
     await inbox.getByRole('button', { name: 'Essen ansehen', exact: true }).click();
     await page.getByRole('button', { name: 'Zahlung von Bob bestätigen', exact: true }).click();
     await expect(page.getByText('Bestätigt', { exact: true })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+});
+
+test('unreviewed restaurants can be bookmarked, persist across reload, nominated and removed', async ({
+  page,
+}) => {
+  const errors = await backend(page);
+  const reviews: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().includes('/rpc/save_review')) reviews.push(request.url());
+  });
+  await signIn(page);
+  await page.getByRole('button', { name: 'Find a place & add a review', exact: true }).click();
+  await page.getByLabel('Restaurant or cuisine', { exact: true }).fill('Miso');
+  await page.getByRole('button', { name: 'Search lunch spots', exact: true }).click();
+  await page.getByRole('button', { name: 'View place & review', exact: true }).click();
+  const saved = page.waitForRequest('**/rpc/set_restaurant_favorite');
+  await page.getByRole('button', { name: 'Save Miso Kitchen to favorites', exact: true }).click();
+  expect((await saved).postDataJSON()).toEqual({
+    org: orgId,
+    osm_place_id: 'osm:node:1',
+    bookmarked: true,
+  });
+  await expect(
+    page.getByRole('button', { name: 'Remove Miso Kitchen from favorites', exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await page.getByRole('tab', { name: /Places/ }).click();
+  await page.getByRole('radio', { name: 'Favorites view', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'View Miso Kitchen', exact: true })).toBeVisible();
+  const nomination = page.waitForRequest('**/rpc/suggest_lunch_place');
+  await page.getByRole('button', { name: 'Nominate Miso Kitchen for today', exact: true }).click();
+  expect((await nomination).postDataJSON()).toEqual({ org: orgId, osm_place_id: 'osm:node:1' });
+  await expect(
+    page.getByRole('button', { name: 'Miso Kitchen is already nominated for today', exact: true }),
+  ).toBeDisabled();
+  const removed = page.waitForRequest('**/rpc/set_restaurant_favorite');
+  await page
+    .getByRole('button', { name: 'Remove Miso Kitchen from favorites', exact: true })
+    .click();
+  expect((await removed).postDataJSON().bookmarked).toBe(false);
+  await expect(page.getByText('No favorites yet', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: /Overview/ }).click();
+  await expect(
+    page.getByRole('button', { name: 'Vote for Miso Kitchen', exact: true }),
+  ).toBeVisible();
+  expect(reviews).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test('overview favorites nominate quickly and are independent of reviewed-place filters', async ({
+  page,
+}) => {
+  const errors = await backend(page, { favorited: true });
+  await signIn(page);
+  await page.getByRole('button', { name: 'Rating: Any rating', exact: true }).click();
+  await page.getByRole('radio', { name: '4.5+ stars', exact: true }).click();
+  await page.getByRole('radio', { name: 'Favorites view', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'View Miso Kitchen', exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: /Overview/ }).click();
+  await page.getByRole('button', { name: 'Suggest a restaurant for today', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Suggest a restaurant for today', exact: true });
+  await expect(dialog.getByRole('button', { name: 'Favorites · 1', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(dialog.getByLabel('Search saved places', { exact: true })).toHaveCount(0);
+  await dialog
+    .getByRole('button', { name: 'Nominate Miso Kitchen for today', exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'Vote for Miso Kitchen', exact: true }),
+  ).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('favorites stay within the selected organization', async ({ page }) => {
+  const errors = await backend(page, { favorited: true, multipleOrganizations: true });
+  await signIn(page);
+  await page.getByRole('radio', { name: 'Favorites view', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'View Miso Kitchen', exact: true })).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Switch organization. Current: Office team', exact: true })
+    .click();
+  await page.getByRole('radio', { name: 'Other team', exact: true }).click();
+  await page.getByRole('radio', { name: 'Favorites view', exact: true }).click();
+  await expect(page.getByText('No favorites yet', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'View Miso Kitchen', exact: true })).toHaveCount(0);
+  await page
+    .getByRole('button', { name: 'Switch organization. Current: Other team', exact: true })
+    .click();
+  await page.getByRole('radio', { name: 'Office team', exact: true }).click();
+  await page.getByRole('radio', { name: 'Favorites view', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'View Miso Kitchen', exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test.describe('German favorites', () => {
+  test.use({ locale: 'de-DE' });
+  test('bookmarks and quick nominations follow system language', async ({ page }) => {
+    const errors = await backend(page, { reviewed: true });
+    await page.goto('/');
+    await page.getByLabel('E-Mail', { exact: true }).fill('alice@example.test');
+    await page.getByLabel('Passwort', { exact: true }).fill('password123');
+    await page.getByRole('button', { name: 'Anmelden', exact: true }).click();
+    await page.getByRole('tab', { name: /Restaurants/ }).click();
+    await page.getByRole('button', { name: 'Miso Kitchen, 5,0 Sterne', exact: true }).click();
+    await page
+      .getByRole('button', { name: 'Miso Kitchen als Favorit speichern', exact: true })
+      .click();
+    await expect(
+      page.getByRole('button', { name: 'Miso Kitchen aus Favoriten entfernen', exact: true }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Zurück', exact: true }).click();
+    await page.getByRole('radio', { name: 'Favoritenansicht', exact: true }).click();
+    await expect(
+      page.getByRole('button', { name: 'Miso Kitchen ansehen', exact: true }),
+    ).toBeVisible();
+    await page.screenshot({ path: '/tmp/forkcast-favorites-german.png' });
+    await page
+      .getByRole('button', { name: 'Miso Kitchen für heute vorschlagen', exact: true })
+      .click();
+    await expect(
+      page.getByRole('button', {
+        name: 'Miso Kitchen ist bereits für heute vorgeschlagen',
+        exact: true,
+      }),
+    ).toBeDisabled();
     expect(errors).toEqual([]);
   });
 });

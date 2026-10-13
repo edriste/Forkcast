@@ -1,4 +1,6 @@
 import { MealFlagBadges } from '../components/MealFlags';
+import { useFavorites } from '../providers/Favorites';
+import { FavoritePlaces } from '../components/FavoritePlaces';
 import { SignupDeadlineBadge } from '../components/SignupDeadline';
 import { useReducedMotion } from '../lib/useReducedMotion';
 import { LunchDialog } from '../components/LunchDialog';
@@ -70,6 +72,7 @@ function PlanAction({
   icon,
   disabled = false,
   grow = false,
+  selected,
   onPress,
 }: {
   label: string;
@@ -77,6 +80,7 @@ function PlanAction({
   icon: React.ComponentProps<typeof Ionicons>['name'];
   disabled?: boolean;
   grow?: boolean;
+  selected?: boolean;
   onPress: () => void;
 }) {
   const { colors, styles } = useTheme();
@@ -84,7 +88,8 @@ function PlanAction({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={title ?? label}
-      accessibilityState={{ disabled }}
+      accessibilityState={{ disabled, selected }}
+      aria-pressed={selected}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => ({
@@ -93,7 +98,7 @@ function PlanAction({
         paddingHorizontal: 12,
         paddingVertical: 8,
         borderRadius: 12,
-        backgroundColor: colors.field,
+        backgroundColor: selected ? colors.light : colors.field,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
@@ -110,6 +115,7 @@ export function OverviewScreen() {
   const { t, displayDate, money, number, placeCategory } = useLocale();
   const { styles, colors } = useTheme();
   const org = useOrganizations().current!;
+  const favorites = useFavorites();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParams>>();
   const today = localDate();
   const [spinning, setSpinning] = useState(false);
@@ -118,6 +124,7 @@ export function OverviewScreen() {
   const reducedMotion = useReducedMotion();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestSource, setSuggestSource] = useState<'saved' | 'favorites'>('saved');
   const [listOpen, setListOpen] = useState(false);
   const [savedSearch, setSavedSearch] = useState('');
   const [voteSearch, setVoteSearch] = useState('');
@@ -145,8 +152,11 @@ export function OverviewScreen() {
   const hasNominations = !!data?.options.some((option) => option.nominated);
   const eligible = useResource(
     useCallback(
-      async () => (suggestOpen || (pickerOpen && !hasNominations) ? reviewedPlaces(org.id) : null),
-      [org.id, pickerOpen, suggestOpen, hasNominations],
+      async () =>
+        (suggestOpen && suggestSource === 'saved') || (pickerOpen && !hasNominations)
+          ? reviewedPlaces(org.id)
+          : null,
+      [org.id, pickerOpen, suggestOpen, suggestSource, hasNominations],
     ),
     ['places', 'organization'],
   );
@@ -449,6 +459,7 @@ export function OverviewScreen() {
                   icon="add-outline"
                   onPress={() => {
                     setSavedSearch('');
+                    setSuggestSource(favorites.ids.length ? 'favorites' : 'saved');
                     setSuggestOpen(true);
                   }}
                 />
@@ -619,6 +630,7 @@ export function OverviewScreen() {
                             onPress={() => {
                               setPickerOpen(false);
                               setSavedSearch('');
+                              setSuggestSource(favorites.ids.length ? 'favorites' : 'saved');
                               setSuggestOpen(true);
                             }}
                           />
@@ -719,50 +731,81 @@ export function OverviewScreen() {
             busy={busy}
             onClose={() => setSuggestOpen(false)}
           >
-            <Field
-              label={t('Search saved places')}
-              value={savedSearch}
-              onChangeText={setSavedSearch}
-            />
-            <PlanAction
-              label={t('Discover new places')}
-              icon="search-outline"
-              onPress={() => {
-                setSuggestOpen(false);
-                navigation.navigate('Search', { suggestForToday: true });
-              }}
-            />
-            <Notice error={eligible.error || eligible.data?.warning || action.error} />
-            {eligible.error && (
-              <Button secondary title={t('Retry places')} onPress={eligible.reload} />
-            )}
-            {eligible.loading && <Text style={styles.subtitle}>{t('Loading…')}</Text>}
-            {!eligible.loading && !savedPlaces.length && (
-              <Text style={styles.subtitle}>{t('No saved places match your search.')}</Text>
-            )}
-            {savedPlaces.map(({ place }) => (
-              <ItemRow
-                key={place.id}
-                inset
-                title={place.name}
-                detail={placeCategory(place)}
-                label={t('Suggest {name}', { name: place.name })}
-                onPress={() => {
-                  if (!busy)
-                    action.run(async () => {
-                      await mutate('suggest_lunch_place', { osm_place_id: place.id });
-                      setSuggestOpen(false);
-                    });
-                }}
-                summary={
-                  <Text style={styles.subtitle}>
-                    {options.some((option) => option.place.id === place.id)
-                      ? t('Already on today’s shortlist')
-                      : t('Add to today’s shortlist')}
-                  </Text>
-                }
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <PlanAction
+                grow
+                label={t('Saved places')}
+                selected={suggestSource === 'saved'}
+                icon="restaurant-outline"
+                onPress={() => setSuggestSource('saved')}
               />
-            ))}
+              <PlanAction
+                grow
+                label={t('Favorites · {count}', { count: favorites.ids.length })}
+                selected={suggestSource === 'favorites'}
+                icon="bookmark-outline"
+                onPress={() => setSuggestSource('favorites')}
+              />
+            </View>
+            {suggestSource === 'favorites' && suggestOpen ? (
+              <FavoritePlaces
+                onOpen={(place) => {
+                  setSuggestOpen(false);
+                  navigation.navigate('Place', { placeId: place.id, initial: place });
+                }}
+                onNominated={async () => {
+                  await overview.reload();
+                  setSuggestOpen(false);
+                }}
+              />
+            ) : (
+              <>
+                <Field
+                  label={t('Search saved places')}
+                  value={savedSearch}
+                  onChangeText={setSavedSearch}
+                />
+                <PlanAction
+                  label={t('Discover new places')}
+                  icon="search-outline"
+                  onPress={() => {
+                    setSuggestOpen(false);
+                    navigation.navigate('Search', { suggestForToday: true });
+                  }}
+                />
+                <Notice error={eligible.error || eligible.data?.warning || action.error} />
+                {eligible.error && (
+                  <Button secondary title={t('Retry places')} onPress={eligible.reload} />
+                )}
+                {eligible.loading && <Text style={styles.subtitle}>{t('Loading…')}</Text>}
+                {!eligible.loading && !savedPlaces.length && (
+                  <Text style={styles.subtitle}>{t('No saved places match your search.')}</Text>
+                )}
+                {savedPlaces.map(({ place }) => (
+                  <ItemRow
+                    key={place.id}
+                    inset
+                    title={place.name}
+                    detail={placeCategory(place)}
+                    label={t('Suggest {name}', { name: place.name })}
+                    onPress={() => {
+                      if (!busy)
+                        action.run(async () => {
+                          await mutate('suggest_lunch_place', { osm_place_id: place.id });
+                          setSuggestOpen(false);
+                        });
+                    }}
+                    summary={
+                      <Text style={styles.subtitle}>
+                        {options.some((option) => option.place.id === place.id)
+                          ? t('Already on today’s shortlist')
+                          : t('Add to today’s shortlist')}
+                      </Text>
+                    }
+                  />
+                ))}
+              </>
+            )}
           </LunchDialog>
           <LunchDialog
             visible={listOpen}

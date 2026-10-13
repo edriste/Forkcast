@@ -1,4 +1,6 @@
 import { PlaceFiltersProvider } from './providers/PlaceFilters';
+import { FavoritesProvider } from './providers/Favorites';
+import { useSession } from './providers/Auth';
 import { useLocale } from './providers/Locale';
 import React, { useRef } from 'react';
 import { LiveUpdatesProvider } from './providers/LiveUpdates';
@@ -100,6 +102,7 @@ function MainTabs({ initialTab }: { initialTab: keyof MainTabParams }) {
   );
 }
 export function AppNavigation() {
+  const user = useSession().user.id;
   const { t, language } = useLocale();
 
   const { colors, dark } = useTheme();
@@ -112,83 +115,85 @@ export function AppNavigation() {
   return (
     <LiveUpdatesProvider key={orgs.current.id}>
       <PlaceFiltersProvider>
-        <NotificationsProvider>
-          <NavigationContainer
-            key={orgs.current.id}
-            onStateChange={(state) => {
-              const tabs = state?.routes.find((route) => route.name === 'Tabs')?.state;
-              const name = tabs?.routes[tabs.index ?? 0]?.name;
-              if (name && ['Overview', 'Places', 'Cooking', 'Profile'].includes(name))
-                activeTab.current = name as keyof MainTabParams;
-            }}
-            theme={{
-              ...(dark ? DarkTheme : DefaultTheme),
-              colors: {
-                primary: colors.accent,
-                background: colors.cream,
-                card: colors.surface,
-                text: colors.ink,
-                border: colors.line,
-                notification: colors.red,
-              },
-            }}
-          >
-            <Stack.Navigator
-              screenOptions={({ navigation }) => ({
-                headerRight: () => (
-                  <NotificationBell
-                    onOpen={(eventId) => navigation.navigate('Event', { eventId })}
-                  />
-                ),
-                headerTintColor: colors.ink,
-                headerStyle: { backgroundColor: colors.surface },
-                headerBackTitle: t('Back'),
-                ...(language === 'de'
-                  ? {
-                      headerBackVisible: false,
-                      headerLeft: () =>
-                        navigation.canGoBack() ? (
-                          <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel={t('Back')}
-                            onPress={navigation.goBack}
-                            style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}
-                          >
-                            <Ionicons name="chevron-back" size={26} color={colors.ink} />
-                          </Pressable>
-                        ) : null,
-                    }
-                  : {}),
-              })}
+        <FavoritesProvider key={user}>
+          <NotificationsProvider>
+            <NavigationContainer
+              key={orgs.current.id}
+              onStateChange={(state) => {
+                const tabs = state?.routes.find((route) => route.name === 'Tabs')?.state;
+                const name = tabs?.routes[tabs.index ?? 0]?.name;
+                if (name && ['Overview', 'Places', 'Cooking', 'Profile'].includes(name))
+                  activeTab.current = name as keyof MainTabParams;
+              }}
+              theme={{
+                ...(dark ? DarkTheme : DefaultTheme),
+                colors: {
+                  primary: colors.accent,
+                  background: colors.cream,
+                  card: colors.surface,
+                  text: colors.ink,
+                  border: colors.line,
+                  notification: colors.red,
+                },
+              }}
             >
-              <Stack.Screen name="Tabs" options={{ headerShown: false }}>
-                {() => <MainTabs initialTab={activeTab.current} />}
-              </Stack.Screen>
-              <Stack.Screen
-                name="Search"
-                component={SearchScreen}
-                options={{ title: t('Search places') }}
-              />
-              <Stack.Screen
-                name="Place"
-                component={PlaceScreen}
-                getId={({ params }) => params.placeId}
-                options={{ title: t('Lunch spot') }}
-              />
-              <Stack.Screen
-                name="CreateEvent"
-                component={CreateEventScreen}
-                options={{ title: t('Host a lunch') }}
-              />
-              <Stack.Screen
-                name="Event"
-                component={EventScreen}
-                getId={({ params }) => params.eventId}
-                options={{ title: t('Office lunch') }}
-              />
-            </Stack.Navigator>
-          </NavigationContainer>
-        </NotificationsProvider>
+              <Stack.Navigator
+                screenOptions={({ navigation }) => ({
+                  headerRight: () => (
+                    <NotificationBell
+                      onOpen={(eventId) => navigation.navigate('Event', { eventId })}
+                    />
+                  ),
+                  headerTintColor: colors.ink,
+                  headerStyle: { backgroundColor: colors.surface },
+                  headerBackTitle: t('Back'),
+                  ...(language === 'de'
+                    ? {
+                        headerBackVisible: false,
+                        headerLeft: () =>
+                          navigation.canGoBack() ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={t('Back')}
+                              onPress={navigation.goBack}
+                              style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}
+                            >
+                              <Ionicons name="chevron-back" size={26} color={colors.ink} />
+                            </Pressable>
+                          ) : null,
+                      }
+                    : {}),
+                })}
+              >
+                <Stack.Screen name="Tabs" options={{ headerShown: false }}>
+                  {() => <MainTabs initialTab={activeTab.current} />}
+                </Stack.Screen>
+                <Stack.Screen
+                  name="Search"
+                  component={SearchScreen}
+                  options={{ title: t('Search places') }}
+                />
+                <Stack.Screen
+                  name="Place"
+                  component={PlaceScreen}
+                  getId={({ params }) => params.placeId}
+                  options={{ title: t('Lunch spot') }}
+                />
+                <Stack.Screen
+                  name="CreateEvent"
+                  component={CreateEventScreen}
+                  options={{ title: t('Host a lunch') }}
+                />
+                <Stack.Screen
+                  name="Event"
+                  component={EventScreen}
+                  getId={({ params }) => params.eventId}
+                  options={{ title: t('Office lunch') }}
+                />
+              </Stack.Navigator>
+            </NavigationContainer>
+          </NotificationsProvider>
+        </FavoritesProvider>
       </PlaceFiltersProvider>
     </LiveUpdatesProvider>
   );

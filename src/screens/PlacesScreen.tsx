@@ -1,4 +1,7 @@
 import { usePlaceFilters } from '../providers/PlaceFilters';
+import { useFavorites } from '../providers/Favorites';
+import { FavoriteButton } from '../components/FavoriteButton';
+import { FavoritePlaces } from '../components/FavoritePlaces';
 import { useLocale } from '../providers/Locale';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
@@ -18,12 +21,13 @@ export function PlacesScreen() {
   const { t, placeCategory, number } = useLocale();
   const { colors, styles } = useTheme();
   const org = useOrganizations().current!;
+  const favorites = useFavorites();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParams>>();
   const resource = useResource(
     useCallback(() => reviewedPlaces(org.id), [org.id]),
     ['places', 'organization'],
   );
-  const [view, setView] = useState<'map' | 'list'>('map');
+  const [view, setView] = useState<'map' | 'list' | 'favorites'>('map');
   const { category, setCategory, minimum, setMinimum } = usePlaceFilters();
   const all = useMemo(() => resource.data?.places ?? [], [resource.data]);
   const filtered = useMemo(() => filterReviewed(all, category, minimum), [all, category, minimum]);
@@ -46,26 +50,41 @@ export function PlacesScreen() {
   }
   return (
     <Page>
-      <Notice error={resource.error || resource.data?.warning} />
-      {(resource.error || resource.data?.failed.length || resource.data?.warning) && (
-        <Button
-          secondary
-          title={t('Retry places')}
-          onPress={resource.reload}
-          busy={resource.loading}
-        />
-      )}
-      {resource.data?.failed.length ? (
+      <Notice
+        error={
+          view === 'favorites' ? '' : resource.error || resource.data?.warning || favorites.error
+        }
+      />
+      {view !== 'favorites' &&
+        (resource.error || resource.data?.failed.length || resource.data?.warning) && (
+          <Button
+            secondary
+            title={t('Retry places')}
+            onPress={resource.reload}
+            busy={resource.loading}
+          />
+        )}
+      {view !== 'favorites' && resource.data?.failed.length ? (
         <Notice
           error={t('{0} places could not be loaded. Retrying automatically.', {
             0: resource.data.failed.length,
           })}
         />
       ) : null}
-      <PlaceFilters
-        categories={categories(all)}
-        {...{ category, setCategory, minimum, setMinimum }}
-      />
+      {view !== 'favorites' && favorites.error && (
+        <Button
+          secondary
+          title={t('Retry favorites')}
+          onPress={favorites.reload}
+          busy={favorites.loading}
+        />
+      )}
+      {view !== 'favorites' && (
+        <PlaceFilters
+          categories={categories(all)}
+          {...{ category, setCategory, minimum, setMinimum }}
+        />
+      )}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <View
           accessibilityRole="radiogroup"
@@ -76,6 +95,7 @@ export function PlacesScreen() {
             [
               { value: 'map', label: 'Map view' },
               { value: 'list', label: 'List view' },
+              { value: 'favorites', label: 'Favorites view' },
             ] as const
           ).map((option) => (
             <Pressable
@@ -113,7 +133,7 @@ export function PlacesScreen() {
                   fontWeight: '700',
                 }}
               >
-                {t(option.value === 'map' ? 'Map' : 'List')}
+                {t(option.value === 'map' ? 'Map' : option.value === 'list' ? 'List' : 'Favorites')}
               </Text>
             </Pressable>
           ))}
@@ -124,10 +144,14 @@ export function PlacesScreen() {
           onPress={() => navigation.navigate('Search')}
         />
       </View>
-      {resource.loading && !resource.data && (
+      {view !== 'favorites' && resource.loading && !resource.data && (
         <Text style={styles.subtitle}>{t('Loading reviewed places…')}</Text>
       )}
-      {view === 'map' ? (
+      {view === 'favorites' ? (
+        <FavoritePlaces
+          onOpen={(place) => navigation.navigate('Place', { placeId: place.id, initial: place })}
+        />
+      ) : view === 'map' ? (
         <>
           {(pins.length > 0 || office) && (
             <ReviewedMap places={pins} office={office} onSelect={select} />
@@ -202,6 +226,9 @@ export function PlacesScreen() {
                 <Text style={styles.text}>
                   {item.aggregate.count} {t(item.aggregate.count === 1 ? 'review' : 'reviews')}
                 </Text>
+                {item.place.provider === 'osm' && (
+                  <FavoriteButton id={item.place.id} name={item.place.name} />
+                )}
               </View>
             </ItemRow>
           ))}

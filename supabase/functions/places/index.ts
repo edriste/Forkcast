@@ -347,9 +347,8 @@ export async function handleRequest(request: Request) {
         (body.automatic !== undefined && typeof body.automatic !== 'boolean')
       )
         return reply({ error: 'Invalid place identifiers' }, 400);
-      // The caller's RLS client can only read reviewed records from their own groups.
-      // Restrict further to the selected group, then allow unreviewed search selections from its regional cache.
-      const [reviews, cache] = await Promise.all([
+      // Vouch for every ID through selected-group records and recipient-private favorites.
+      const [reviews, cache, favorites, shortlist] = await Promise.all([
         client
           .from('place_ratings')
           .select('place_id')
@@ -360,14 +359,32 @@ export async function handleRequest(request: Request) {
           .select('places')
           .eq('organization_id', org.id)
           .maybeSingle(),
+        client
+          .from('restaurant_favorites')
+          .select('place_id')
+          .eq('organization_id', org.id)
+          .in('place_id', body.ids),
+        client
+          .from('daily_lunch_options')
+          .select('place_id')
+          .eq('organization_id', org.id)
+          .eq('is_shortlisted', true)
+          .in('place_id', body.ids),
       ]);
-      if (reviews.error || cache.error) throw reviews.error ?? cache.error;
-      const reviewedIds = [...new Set((reviews.data ?? []).map((review) => review.place_id))];
-      const stored = reviewedIds.length
+      if (reviews.error || cache.error || favorites.error || shortlist.error)
+        throw reviews.error ?? cache.error ?? favorites.error ?? shortlist.error;
+      const authorizedIds = [
+        ...new Set(
+          [...(reviews.data ?? []), ...(favorites.data ?? []), ...(shortlist.data ?? [])].map(
+            (row) => row.place_id,
+          ),
+        ),
+      ];
+      const stored = authorizedIds.length
         ? await client
             .from('places')
             .select('id,provider,metadata,refreshed_at')
-            .in('id', reviewedIds)
+            .in('id', authorizedIds)
         : { data: [], error: null };
       if (stored.error) throw stored.error;
       const available = new Map<string, Place>(
@@ -380,7 +397,7 @@ export async function handleRequest(request: Request) {
             ? ({ ...row.metadata, updatedAt: row.refreshed_at ?? row.metadata.updatedAt } as Place)
             : legacyPlace(row.id),
         );
-      // Never send arbitrary caller IDs upstream: only selected-group reviews/cache entries qualify.
+      // Never send arbitrary caller IDs upstream: only vouched-for selected-group records qualify.
       const requested = new Map([...available].filter(([id]) => body.ids.includes(id)));
       const admin = createClient(
         Deno.env.get('SUPABASE_URL')!,

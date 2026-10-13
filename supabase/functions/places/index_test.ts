@@ -33,6 +33,8 @@ type Options = {
   refreshClaim?: boolean;
   updatedCuisine?: boolean;
   emptyElements?: boolean;
+  favorite?: boolean;
+  shortlisted?: boolean;
 };
 async function scenario(body: object, options: Options = {}) {
   const original = globalThis.fetch;
@@ -93,6 +95,10 @@ async function scenario(body: object, options: Options = {}) {
     if (path === '/rest/v1/rpc/claim_osm_request') return response(options.gate !== false);
     if (path === '/rest/v1/place_ratings')
       return response(options.reviewed ? [{ place_id: place.id }] : []);
+    if (path === '/rest/v1/restaurant_favorites')
+      return response(options.favorite ? [{ place_id: place.id }] : []);
+    if (path === '/rest/v1/daily_lunch_options')
+      return response(options.shortlisted ? [{ place_id: place.id }] : []);
     if (path === '/rest/v1/rpc/claim_osm_place_refresh')
       return response(
         options.refreshClaim === false ? [] : [{ place_id: place.id, token: 'batch' }],
@@ -112,7 +118,7 @@ async function scenario(body: object, options: Options = {}) {
       );
     if (path === '/rest/v1/places')
       return response(
-        options.reviewed && init?.method !== 'POST'
+        (options.reviewed || options.favorite || options.shortlisted) && init?.method !== 'POST'
           ? [{ id: place.id, provider: 'osm', metadata: place, refreshed_at: place.updatedAt }]
           : [],
       );
@@ -386,3 +392,28 @@ Deno.test('automatic source checks quietly reuse recently checked facts', async 
   assertEquals(result.data.warning, '');
   assert(!result.calls.some((call) => call.url.startsWith('https://overpass-api.de')));
 });
+
+Deno.test(
+  'details preserve owned favorites and shared nominations outside the regional cache',
+  async () => {
+    for (const source of ['favorite', 'shortlisted'] as const) {
+      const result = await scenario(
+        { action: 'details', organizationId: org, ids: [place.id, 'osm:node:999'] },
+        { [source]: true, refreshClaim: false },
+      );
+      assertEquals(result.status, 200);
+      assertEquals(
+        result.data.places.map((item: { id: string }) => item.id),
+        [place.id],
+      );
+      assertEquals(result.data.failed, ['osm:node:999']);
+      const ownership = result.calls.find(
+        (call) =>
+          new URL(call.url).pathname ===
+          '/rest/v1/' + (source === 'favorite' ? 'restaurant_favorites' : 'daily_lunch_options'),
+      )!;
+      assertEquals(new URL(ownership.url).searchParams.get('organization_id'), 'eq.' + org);
+      assert(!result.calls.some((call) => call.url.includes('overpass-api.de')));
+    }
+  },
+);
