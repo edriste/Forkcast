@@ -1,3 +1,5 @@
+import { PlaceDistance } from '../components/PlaceDistance';
+import { hasCoordinates } from '../lib/distance';
 import { usePlaceFilters } from '../providers/PlaceFilters';
 import { useFavorites } from '../providers/Favorites';
 import { FavoriteButton } from '../components/FavoriteButton';
@@ -9,7 +11,13 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParams } from '../navigation';
 import { useOrganizations } from '../providers/Organizations';
-import { categories, filterReviewed, reviewedPlaces, type Reviewed } from '../lib/reviews';
+import {
+  categories,
+  filterReviewed,
+  sortReviewed,
+  reviewedPlaces,
+  type Reviewed,
+} from '../lib/reviews';
 import { useResource } from '../lib/useResource';
 import { Button, Empty, Notice, Page, useTheme } from '../components/ui';
 import { PlaceFilters } from '../components/PlaceFilters';
@@ -28,9 +36,21 @@ export function PlacesScreen() {
     ['places', 'organization'],
   );
   const [view, setView] = useState<'map' | 'list' | 'favorites'>('map');
-  const { category, setCategory, minimum, setMinimum } = usePlaceFilters();
+  const {
+    category,
+    setCategory,
+    minimum,
+    setMinimum,
+    maximumDistance,
+    setMaximumDistance,
+    sort,
+    setSort,
+  } = usePlaceFilters();
   const all = useMemo(() => resource.data?.places ?? [], [resource.data]);
-  const filtered = useMemo(() => filterReviewed(all, category, minimum), [all, category, minimum]);
+  const filtered = useMemo(
+    () => sortReviewed(filterReviewed(all, category, minimum, org, maximumDistance), sort, org),
+    [all, category, minimum, maximumDistance, sort, org.latitude, org.longitude],
+  );
   const pins = useMemo(
     () =>
       filtered.filter(
@@ -82,7 +102,17 @@ export function PlacesScreen() {
       {view !== 'favorites' && (
         <PlaceFilters
           categories={categories(all)}
-          {...{ category, setCategory, minimum, setMinimum }}
+          {...{
+            category,
+            setCategory,
+            minimum,
+            setMinimum,
+            maximumDistance,
+            setMaximumDistance,
+            sort,
+            setSort,
+          }}
+          distanceAvailable={hasCoordinates(org)}
         />
       )}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -198,7 +228,11 @@ export function PlacesScreen() {
       ) : (
         <>
           <Text style={styles.subtitle}>
-            {t('Your team’s tried-and-tasted spots. Sorted by average rating.')}
+            {t(
+              sort === 'nearest' && hasCoordinates(org)
+                ? 'Your team’s tried-and-tasted spots. Sorted by straight-line distance from your office.'
+                : 'Your team’s tried-and-tasted spots. Sorted by average rating.',
+            )}
           </Text>
           {!filtered.length &&
             !resource.loading &&
@@ -208,7 +242,7 @@ export function PlacesScreen() {
                 title={all.length ? t('No spots match') : t('Your next favorite starts here')}
                 detail={
                   all.length
-                    ? t('Try a different cuisine or a lower rating.')
+                    ? t('Try a different cuisine, rating or distance.')
                     : t('Search for a lunch spot and leave the first review for your team.')
                 }
               />
@@ -219,6 +253,7 @@ export function PlacesScreen() {
               title={item.place.name}
               detail={`${placeCategory(item.place)} · ${item.place.address}`}
               label={t('Read reviews')}
+              summary={<PlaceDistance place={item.place} />}
               onPress={() => select(item)}
             >
               <View style={{ alignItems: 'center', gap: 4 }}>

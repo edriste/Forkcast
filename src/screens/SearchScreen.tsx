@@ -1,5 +1,6 @@
 import { useAutomaticRefresh } from '../providers/LiveUpdates';
 import { useIsFocused, useFocusEffect } from '@react-navigation/native';
+import { PlaceDistance } from '../components/PlaceDistance';
 import { useLocale } from '../providers/Locale';
 import React, { useState, useRef, useCallback } from 'react';
 import { Text } from 'react-native';
@@ -146,6 +147,7 @@ export function SearchScreen({
           <Text style={styles.subtitle}>
             {placeCategory(place)} · {place.address}
           </Text>
+          <PlaceDistance place={place} />
           {route.params?.suggestForToday && (
             <Button
               secondary

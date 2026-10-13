@@ -4,6 +4,8 @@ import { FavoritePlaces } from '../components/FavoritePlaces';
 import { SignupDeadlineBadge } from '../components/SignupDeadline';
 import { useReducedMotion } from '../lib/useReducedMotion';
 import { LunchDialog } from '../components/LunchDialog';
+import { PlaceDistance } from '../components/PlaceDistance';
+import { formatDistance, hasCoordinates } from '../lib/distance';
 import { usePlaceFilters } from '../providers/PlaceFilters';
 import { categoryName, filterReviewed, reviewedPlaces } from '../lib/reviews';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -112,7 +114,7 @@ function PlanAction({
   );
 }
 export function OverviewScreen() {
-  const { t, displayDate, money, number, placeCategory } = useLocale();
+  const { t, displayDate, money, number, placeCategory, locale } = useLocale();
   const { styles, colors } = useTheme();
   const org = useOrganizations().current!;
   const favorites = useFavorites();
@@ -168,6 +170,8 @@ export function OverviewScreen() {
     eligible.data?.places ?? [],
     filters.category,
     filters.minimum,
+    org,
+    filters.maximumDistance,
   ).filter((item) => item.place.provider === 'osm');
   const candidatePlaces = nominations.length
     ? nominations.map((option) => option.place)
@@ -210,6 +214,7 @@ export function OverviewScreen() {
             : placeCategory(option.place)
         }
         label={t('Read reviews for {name}', { name: option.place.name })}
+        summary={<PlaceDistance place={option.place} />}
         onPress={() => {
           setListOpen(false);
           navigation.navigate('Place', {
@@ -539,6 +544,9 @@ export function OverviewScreen() {
                                   0: number(filters.minimum).replace(/[.,]0$/, ''),
                                 })
                               : t('Any rating')}
+                            {filters.maximumDistance > 0 &&
+                              hasCoordinates(org) &&
+                              `\n${t('Distance')}: ${t('Within {distance}', { distance: formatDistance(filters.maximumDistance, locale) })}`}
                           </Text>
                           <PlanAction
                             label={t('Adjust filters')}
@@ -579,6 +587,7 @@ export function OverviewScreen() {
                               <View key={place.id} style={{ gap: 4, paddingVertical: 8 }}>
                                 <Text style={styles.text}>{place.name}</Text>
                                 <Text style={styles.subtitle}>{placeCategory(place)}</Text>
+                                <PlaceDistance place={place} />
                               </View>
                             ))}
                             {!matchingCandidates.length && (
@@ -612,7 +621,9 @@ export function OverviewScreen() {
                                 : 'No reviewed restaurants yet. Review a place or suggest a restaurant for today.',
                             )}
                           </Text>
-                          {(filters.category !== 'All' || filters.minimum > 0) && (
+                          {(filters.category !== 'All' ||
+                            filters.minimum > 0 ||
+                            filters.maximumDistance > 0) && (
                             <Button
                               secondary
                               title={t('Reset filters')}
@@ -620,6 +631,7 @@ export function OverviewScreen() {
                               onPress={() => {
                                 filters.setCategory('All');
                                 filters.setMinimum(0);
+                                filters.setMaximumDistance(0);
                               }}
                             />
                           )}

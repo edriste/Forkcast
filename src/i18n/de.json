@@ -733,5 +733,18 @@
   "Confirm leaving": "Verlassen bestätigen",
   "Remove access": "Zugriff entziehen",
   "Only organization administrators can remove members": "Nur Administratoren können Mitglieder entfernen",
-  "Use Leave organization to leave yourself": "Nutze Organisation verlassen, um selbst auszutreten"
+  "Use Leave organization to leave yourself": "Nutze Organisation verlassen, um selbst auszutreten",
+  "{distance} · straight line": "{distance} · Luftlinie",
+  "Straight-line distance from office: {distance}": "Luftlinie vom Büro: {distance}",
+  "Distance unavailable for this place.": "Für diesen Ort ist keine Entfernung verfügbar.",
+  "Set an office location to calculate distances.": "Lege einen Bürostandort fest, um Entfernungen zu berechnen.",
+  "Distance": "Entfernung",
+  "Any distance": "Beliebige Entfernung",
+  "Within {distance}": "Bis {distance}",
+  "Sort": "Sortierung",
+  "Nearest first": "Nächste zuerst",
+  "Best rated": "Beste Bewertung",
+  "Straight-line distances from your office; walking routes may be longer.": "Luftlinie von deinem Büro; Fußwege können länger sein.",
+  "Your team’s tried-and-tasted spots. Sorted by straight-line distance from your office.": "Die erprobten Restaurants deines Teams. Nach Luftlinie vom Büro sortiert.",
+  "Try a different cuisine, rating or distance.": "Probiere eine andere Küche, Bewertung oder Entfernung."
 }

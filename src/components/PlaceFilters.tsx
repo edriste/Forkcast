@@ -1,3 +1,5 @@
+import { formatDistance } from '../lib/distance';
+import { IconAction } from './compact';
 import { useLocale } from '../providers/Locale';
 import React, { useState } from 'react';
 import {
@@ -13,21 +15,31 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { categoryName } from '../lib/reviews';
 import { Field, useTheme } from './ui';
 
-type Filter = 'category' | 'rating';
+type Filter = 'category' | 'rating' | 'distance' | 'sort';
 export function PlaceFilters({
   categories,
   category,
   setCategory,
   minimum,
   setMinimum,
+  maximumDistance,
+  setMaximumDistance,
+  sort,
+  setSort,
+  distanceAvailable,
 }: {
   categories: string[];
   category: string;
   setCategory: (value: string) => void;
   minimum: number;
   setMinimum: (value: number) => void;
+  maximumDistance: number;
+  setMaximumDistance: (value: number) => void;
+  sort: 'rating' | 'nearest';
+  setSort: (value: 'rating' | 'nearest') => void;
+  distanceAvailable: boolean;
 }) {
-  const { t, number } = useLocale();
+  const { t, number, locale } = useLocale();
 
   const { colors, styles } = useTheme();
   const [open, setOpen] = useState<Filter | null>(null);
@@ -50,6 +62,21 @@ export function PlaceFilters({
         : t('Any rating'),
       active: minimum !== 0,
     },
+    {
+      id: 'distance' as const,
+      title: t('Distance'),
+      label:
+        maximumDistance && distanceAvailable
+          ? t('Within {distance}', { distance: formatDistance(maximumDistance, locale) })
+          : t('Any distance'),
+      active: maximumDistance !== 0 && distanceAvailable,
+    },
+    {
+      id: 'sort' as const,
+      title: t('Sort'),
+      label: t(sort === 'nearest' && distanceAvailable ? 'Nearest first' : 'Best rated'),
+      active: sort === 'nearest' && distanceAvailable,
+    },
   ];
   const current = filters.find((filter) => filter.id === open);
   const options =
@@ -69,64 +96,102 @@ export function PlaceFilters({
               ? t('{0}+ stars', { 0: number(value).replace(/[.,]0$/, '') })
               : t('Any rating'),
           }))
-        : [];
-  const selected = open === 'category' ? category : String(minimum);
+        : open === 'distance'
+          ? [0, 500, 1000, 2000, 3000]
+              .filter((value) => !value || distanceAvailable)
+              .map((value) => ({
+                value: String(value),
+                label: value
+                  ? t('Within {distance}', { distance: formatDistance(value, locale) })
+                  : t('Any distance'),
+              }))
+          : open === 'sort'
+            ? [
+                { value: 'rating', label: t('Best rated') },
+                ...(distanceAvailable ? [{ value: 'nearest', label: t('Nearest first') }] : []),
+              ]
+            : [];
+  const selected =
+    open === 'category'
+      ? category
+      : open === 'distance'
+        ? String(distanceAvailable ? maximumDistance : 0)
+        : open === 'sort'
+          ? distanceAvailable
+            ? sort
+            : 'rating'
+          : String(minimum);
   function choose(value: string) {
     if (open === 'category') setCategory(value);
     else if (open === 'rating') setMinimum(Number(value));
+    else if (open === 'distance') setMaximumDistance(Number(value));
+    else if (open === 'sort') setSort(value === 'nearest' ? 'nearest' : 'rating');
     setOpen(null);
   }
   return (
     <View style={{ gap: 6 }}>
-      <View accessibilityLabel={t('Lunch spot filters')} style={{ flexDirection: 'row', gap: 8 }}>
-        {filters.map((filter) => (
-          <Pressable
-            key={filter.id}
-            accessibilityRole="button"
-            accessibilityLabel={t('{0}: {1}', { 0: t(filter.title), 1: t(filter.label) })}
-            accessibilityState={{ expanded: open === filter.id }}
-            onPress={() => {
-              setSearch('');
-              setOpen(filter.id);
-            }}
-            style={({ pressed }) => ({
-              flex: 1,
-              minWidth: 0,
-              minHeight: 56,
-              paddingHorizontal: 10,
-              paddingVertical: 8,
-              borderRadius: 12,
-              borderWidth: 1,
-              borderColor: filter.active ? colors.orange : colors.line,
-              backgroundColor: filter.active ? colors.light : colors.surface,
-              opacity: pressed ? 0.75 : 1,
-            })}
-          >
-            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '600' }}>
-              {filter.title}
-            </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Text
-                numberOfLines={1}
-                style={{
-                  flex: 1,
-                  color: filter.active ? colors.accent : colors.ink,
-                  fontSize: 13,
-                  fontWeight: '600',
-                }}
-              >
-                {filter.label}
+      <View
+        accessibilityLabel={t('Lunch spot filters')}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+      >
+        {filters.map((filter) =>
+          filter.id === 'sort' ? (
+            <IconAction
+              key={filter.id}
+              title={t('{0}: {1}', { 0: filter.title, 1: filter.label })}
+              icon="swap-vertical-outline"
+              selected={filter.active}
+              onPress={() => setOpen('sort')}
+            />
+          ) : (
+            <Pressable
+              key={filter.id}
+              accessibilityRole="button"
+              accessibilityLabel={t('{0}: {1}', { 0: t(filter.title), 1: t(filter.label) })}
+              accessibilityState={{ expanded: open === filter.id }}
+              onPress={() => {
+                setSearch('');
+                setOpen(filter.id);
+              }}
+              style={({ pressed }) => ({
+                flex: 1,
+                minWidth: 0,
+                minHeight: 56,
+                paddingHorizontal: 10,
+                paddingVertical: 8,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: filter.active ? colors.orange : colors.line,
+                backgroundColor: filter.active ? colors.light : colors.surface,
+                opacity: pressed ? 0.75 : 1,
+              })}
+            >
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '600' }}>
+                {filter.title}
               </Text>
-              <Text
-                accessibilityElementsHidden
-                importantForAccessibility="no"
-                style={{ color: colors.muted }}
-              >
-                ⌄
-              </Text>
-            </View>
-          </Pressable>
-        ))}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    flex: 1,
+                    color: filter.active ? colors.accent : colors.ink,
+                    fontSize: 13,
+                    fontWeight: '600',
+                  }}
+                >
+                  {filter.label}
+                </Text>
+                <Text
+                  accessibilityElementsHidden
+                  importantForAccessibility="no"
+                  style={{ color: colors.muted }}
+                >
+                  ⌄
+                </Text>
+              </View>
+            </Pressable>
+          ),
+        )}
       </View>
       {filters.some((filter) => filter.active) && (
         <Pressable
@@ -135,6 +200,8 @@ export function PlaceFilters({
           onPress={() => {
             setCategory('All');
             setMinimum(0);
+            setMaximumDistance(0);
+            setSort('rating');
           }}
           style={{
             alignSelf: 'flex-end',
@@ -219,6 +286,15 @@ export function PlaceFilters({
                 <Text style={{ color: colors.ink, fontSize: 26 }}>×</Text>
               </Pressable>
             </View>
+            {(open === 'distance' || open === 'sort') && (
+              <Text style={styles.subtitle}>
+                {t(
+                  distanceAvailable
+                    ? 'Straight-line distances from your office; walking routes may be longer.'
+                    : 'Set an office location to calculate distances.',
+                )}
+              </Text>
+            )}
             {open === 'category' && categoryOptions.length > 8 && (
               <Field
                 label={t('Search cuisines')}

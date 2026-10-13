@@ -10,6 +10,7 @@ import { useResource } from '../lib/useResource';
 import type { Place } from '../lib/types';
 import { Button, Empty, Field, Notice, useAction, useTheme } from './ui';
 import { IconAction, ItemRow } from './compact';
+import { PlaceDistance } from './PlaceDistance';
 import { FavoriteButton } from './FavoriteButton';
 import { OSMAttribution } from './OSMAttribution';
 
@@ -105,9 +106,12 @@ export function FavoritePlaces({
           label={t('View {name}', { name: place.name })}
           onPress={() => onOpen(place)}
           summary={
-            nominated.has(place.id) ? (
-              <Text style={styles.subtitle}>{t('Already on today’s shortlist')}</Text>
-            ) : undefined
+            <View style={{ gap: 4 }}>
+              <PlaceDistance place={place} />
+              {nominated.has(place.id) && (
+                <Text style={styles.subtitle}>{t('Already on today’s shortlist')}</Text>
+              )}
+            </View>
           }
         >
           <View style={{ flexDirection: 'row', gap: 6 }}>

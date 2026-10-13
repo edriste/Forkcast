@@ -1,3 +1,4 @@
+import { compareDistance, withinDistance, type Coordinates } from './distance';
 import { supabase } from './supabase';
 import { details } from './places';
 import type { Place } from './types';
@@ -54,10 +55,18 @@ export async function ownReview(org: string, id: string, author: string): Promis
   if (error) throw error;
   return data as Review | null;
 }
-export function filterReviewed(places: Reviewed[], category: string, minimum: number) {
+export function filterReviewed(
+  places: Reviewed[],
+  category: string,
+  minimum: number,
+  origin?: Coordinates,
+  maximumDistance = 0,
+) {
   return places.filter(
     ({ place, aggregate }) =>
-      (category === 'All' || place.types.includes(category)) && aggregate.average >= minimum,
+      (category === 'All' || place.types.includes(category)) &&
+      aggregate.average >= minimum &&
+      (!origin || withinDistance(origin, place, maximumDistance)),
   );
 }
 export function categoryName(category: string) {
@@ -80,4 +89,14 @@ export function categories(places: Reviewed[]) {
       ),
     ),
   ].sort();
+}
+
+export function sortReviewed(places: Reviewed[], sort: 'rating' | 'nearest', origin: Coordinates) {
+  return [...places].sort(
+    (a, b) =>
+      (sort === 'nearest' ? compareDistance(origin, a.place, b.place) : 0) ||
+      Number(b.aggregate.average) - Number(a.aggregate.average) ||
+      a.place.name.localeCompare(b.place.name) ||
+      a.place.id.localeCompare(b.place.id),
+  );
 }

@@ -131,6 +131,7 @@ async function backend(
   page: Page,
   options: {
     group?: boolean;
+    office?: boolean;
     organizationRole?: 'admin' | 'member';
     differentCreator?: boolean;
     legacy?: boolean;
@@ -158,9 +159,9 @@ async function backend(
   let groupRecord = {
     ...org,
     created_by: options.differentCreator ? '00000000-0000-0000-0000-000000000002' : userId,
-    latitude: null as number | null,
-    longitude: null as number | null,
-    location_label: null as string | null,
+    latitude: (options.office ? 52.52 : null) as number | null,
+    longitude: (options.office ? 13.39 : null) as number | null,
+    location_label: (options.office ? 'Berlin office' : null) as string | null,
   };
   const organizationMembers = [
     {
@@ -3251,5 +3252,187 @@ test('the no-organization screen picks up a membership created on another device
   await expect(
     page.getByRole('button', { name: 'Switch organization. Current: Office team', exact: true }),
   ).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('straight-line distances support nearest sorting, shared distance filtering and the fallback wheel', async ({
+  page,
+}) => {
+  const errors = await backend(page, { reviewed: true, office: true });
+  const places = [
+    {
+      id: 'osm:node:1',
+      provider: 'osm',
+      name: 'Miso Kitchen',
+      address: 'Berlin',
+      category: 'Japanese restaurant',
+      latitude: 52.52,
+      longitude: 13.4,
+      types: ['restaurant', 'cuisine:japanese'],
+      hours: [],
+      attributions: [],
+    },
+    {
+      id: 'osm:node:2',
+      provider: 'osm',
+      name: 'Nearby Cafe',
+      address: 'Berlin',
+      category: 'Cafe',
+      latitude: 52.52,
+      longitude: 13.395,
+      types: ['cafe'],
+      hours: [],
+      attributions: [],
+    },
+  ];
+  await page.route('https://forkcast-test.supabase.co/rest/v1/place_ratings**', (route) =>
+    route.fulfill({
+      json: places.map((place, i) => ({
+        place_id: place.id,
+        organization_id: orgId,
+        average: i ? 3 : 5,
+        count: 1,
+      })),
+    }),
+  );
+  await page.route('https://forkcast-test.supabase.co/functions/v1/places', async (route) => {
+    const body = route.request().postDataJSON();
+    if (body.action !== 'details') return route.fallback();
+    await route.fulfill({
+      json: {
+        places: places.filter((place) => body.ids.includes(place.id)),
+        failed: [],
+        warning: '',
+      },
+    });
+  });
+  await signIn(page);
+  await page.getByRole('radio', { name: 'List view', exact: true }).click();
+  await expect(page.getByText('680 m · straight line', { exact: true }).first()).toBeVisible();
+  await page.getByRole('button', { name: 'Sort: Best rated', exact: true }).click();
+  await page.getByRole('radio', { name: 'Nearest first', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Read reviews', exact: true }).first(),
+  ).toContainText('Nearby Cafe');
+  await page.getByRole('button', { name: 'Distance: Any distance', exact: true }).click();
+  await page.getByRole('radio', { name: 'Within 500 m', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Read reviews', exact: true })).toHaveCount(1);
+  await page.getByRole('radio', { name: 'Map view', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Miso Kitchen, 5.0 stars', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'Nearby Cafe, 3.0 stars', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('tab', { name: /Overview/ }).click();
+  await page.getByRole('radio', { name: "I'm going out", exact: true }).click();
+  await page.getByRole('button', { name: 'Spin the wheel', exact: true }).click();
+  const picker = page.getByRole('dialog', { name: 'Spin the wheel', exact: true });
+  await expect(picker.getByText('Distance: Within 500 m', { exact: false })).toBeVisible();
+  await expect(picker.getByText('Picking from 1 restaurant', { exact: true })).toBeVisible();
+  const spin = page.waitForRequest('**/rpc/spin_lunch_wheel');
+  await picker.getByRole('button', { name: 'Spin the wheel', exact: true }).click();
+  expect((await spin).postDataJSON().candidate_ids).toEqual(['osm:node:2']);
+  await expect(picker.getByText('Wheel result: Nearby Cafe', { exact: true })).toBeVisible();
+  await picker.getByRole('button', { name: 'Close restaurant picker', exact: true }).click();
+  expect(errors).toEqual([]);
+});
+
+test('distance availability handles missing offices and appears in favorites and place details', async ({
+  page,
+}) => {
+  const errors = await backend(page, { reviewed: true, office: true, favorited: true });
+  await signIn(page);
+  await page.getByRole('radio', { name: 'Favorites view', exact: true }).click();
+  await expect(page.getByText('680 m · straight line', { exact: true }).first()).toBeVisible();
+  await page.getByRole('button', { name: 'View Miso Kitchen', exact: true }).click();
+  await expect(
+    page.getByLabel('Straight-line distance from office: 680 m', { exact: true }).last(),
+  ).toBeVisible();
+  await page.getByRole('link', { name: 'Go back', exact: true }).click();
+  await page.getByRole('radio', { name: 'List view', exact: true }).click();
+  await page.getByRole('button', { name: 'Distance: Any distance', exact: true }).click();
+  await page.getByRole('radio', { name: 'Within 500 m', exact: true }).click();
+  await expect(page.getByText('No spots match', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Reset filters', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Read reviews', exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test.describe('German straight-line distances', () => {
+  test.use({ locale: 'de-DE' });
+  test('distance labels and controls follow system language', async ({ page }) => {
+    const errors = await backend(page, { office: true, reviewed: true });
+    await page.goto('/');
+    await page.getByLabel('E-Mail', { exact: true }).fill('alice@example.test');
+    await page.getByLabel('Passwort', { exact: true }).fill('password123');
+    await page.getByRole('button', { name: 'Anmelden', exact: true }).click();
+    await page.getByRole('tab', { name: /Restaurants/ }).click();
+    await page.getByRole('radio', { name: 'Listenansicht', exact: true }).click();
+    await expect(page.getByText('680 m · Luftlinie', { exact: true }).first()).toBeVisible();
+    await page
+      .getByRole('button', { name: 'Entfernung: Beliebige Entfernung', exact: true })
+      .click();
+    await page.getByRole('radio', { name: 'Bis 1 km', exact: true }).click();
+    await page.screenshot({ path: '/tmp/forkcast-distance-german.png', fullPage: true });
+    expect(errors).toEqual([]);
+  });
+});
+
+test('places without an office location keep their list and cannot use nearest or distance limits', async ({
+  page,
+}) => {
+  const errors = await backend(page, { reviewed: true });
+  await signIn(page);
+  await page.getByRole('radio', { name: 'List view', exact: true }).click();
+  await page.getByRole('button', { name: 'Distance: Any distance', exact: true }).click();
+  await expect(
+    page.getByText('Set an office location to calculate distances.', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'Within 500 m', exact: true })).toHaveCount(0);
+  await page.getByRole('radio', { name: 'Any distance', exact: true }).click();
+  await page.getByRole('button', { name: 'Sort: Best rated', exact: true }).click();
+  await expect(page.getByRole('radio', { name: 'Nearest first', exact: true })).toHaveCount(0);
+  await page.getByRole('radio', { name: 'Best rated', exact: true }).click();
+  await page.getByRole('button', { name: 'Read reviews', exact: true }).click();
+  await expect(
+    page.getByText('Set an office location to calculate distances.', { exact: true }),
+  ).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('distance limits recalculate automatically when the office location changes', async ({
+  page,
+}) => {
+  const live: LiveHarness = {};
+  const errors = await backend(page, { reviewed: true, office: true, live });
+  await signIn(page);
+  await page.getByRole('radio', { name: 'List view', exact: true }).click();
+  await page.getByRole('button', { name: 'Distance: Any distance', exact: true }).click();
+  await page.getByRole('radio', { name: 'Within 500 m', exact: true }).click();
+  await expect(page.getByText('No spots match', { exact: true })).toBeVisible();
+  await expect.poll(() => live.joins ?? 0).toBeGreaterThan(0);
+  await page.route('https://forkcast-test.supabase.co/rest/v1/organizations**', (route) =>
+    route.fulfill({
+      json: [{ ...org, latitude: 52.52, longitude: 13.395, location_label: 'Closer office' }],
+    }),
+  );
+  live.emit!('organization');
+  await expect(page.getByRole('button', { name: 'Read reviews', exact: true })).toBeVisible();
+  await expect(page.getByText('340 m · straight line', { exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('legacy places without coordinates show an unavailable distance instead of zero', async ({
+  page,
+}) => {
+  const errors = await backend(page, { legacy: true, office: true });
+  await signIn(page);
+  await page.getByRole('radio', { name: 'List view', exact: true }).click();
+  await page.getByRole('button', { name: 'Read reviews', exact: true }).click();
+  await expect(
+    page.getByText('Distance unavailable for this place.', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText('0 m · straight line', { exact: true })).toHaveCount(0);
   expect(errors).toEqual([]);
 });

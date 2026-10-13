@@ -1,3 +1,4 @@
+import { PlaceDistance } from '../components/PlaceDistance';
 import { useLocale } from '../providers/Locale';
 import { useFavorites } from '../providers/Favorites';
 import { FavoriteButton } from '../components/FavoriteButton';
@@ -116,6 +117,7 @@ export function PlaceScreen({
             {place.provider === 'osm' && <FavoriteButton id={place.id} name={place.name} />}
           </SectionHeading>
           <Text style={styles.subtitle}>{place.address}</Text>
+          <PlaceDistance place={place} showUnavailable />
           {place.provider === 'osm' && !place.hours.length && (
             <Text style={styles.subtitle}>{t('Opening hours not listed.')}</Text>
           )}
