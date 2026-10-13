@@ -189,13 +189,13 @@ export function PlaceScreen({
               'This entry needs to be matched to an OpenStreetMap restaurant. Its colleague reviews are preserved.',
             )}
           </Text>
-          {org.created_by === session.user.id ? (
+          {org.role === 'admin' ? (
             <Button
               title={t('Match to an OSM place')}
               onPress={() => navigation.navigate('Search', { legacyPlaceId: id })}
             />
           ) : (
-            <Text style={styles.subtitle}>{t('Ask the group creator to match this entry.')}</Text>
+            <Text style={styles.subtitle}>{t('Ask an administrator to match this entry.')}</Text>
           )}
         </Card>
       )}

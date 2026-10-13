@@ -5,6 +5,7 @@ export type Organization = {
   name: string;
   search_area: string;
   created_by: string;
+  role: 'admin' | 'member';
   latitude: number | null;
   longitude: number | null;
   location_label: string | null;

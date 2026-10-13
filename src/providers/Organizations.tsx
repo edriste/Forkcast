@@ -35,8 +35,23 @@ export function OrganizationProvider({ children }: React.PropsWithChildren) {
       const request = ++generation.current;
       setError('');
       try {
-        const { data, error } = await supabase.from('organizations').select('*').order('name');
-        if (error) throw error;
+        const [groups, memberships] = await Promise.all([
+          supabase.from('organizations').select('*').order('name'),
+          supabase
+            .from('organization_memberships')
+            .select('organization_id,role')
+            .eq('user_id', session.user.id),
+        ]);
+        if (groups.error) throw groups.error;
+        if (memberships.error) throw memberships.error;
+        const data: Organization[] = (groups.data ?? []).map((group) => ({
+          ...group,
+          role:
+            memberships.data.find((membership) => membership.organization_id === group.id)?.role ===
+            'admin'
+              ? 'admin'
+              : 'member',
+        }));
         const stored = selectId ?? (selected.current || (await AsyncStorage.getItem(storageKey)));
         if (!active.current || generation.current !== request) return;
         setOrganizations(data);
@@ -44,12 +59,15 @@ export function OrganizationProvider({ children }: React.PropsWithChildren) {
         selected.current = next;
         setId(next);
       } catch (e) {
-        if (active.current && generation.current === request) setError(message(e));
+        if (active.current && generation.current === request) {
+          setError(message(e));
+          setOrganizations((previous) => previous.map((group) => ({ ...group, role: 'member' })));
+        }
       } finally {
         if (active.current && generation.current === request) setLoading(false);
       }
     },
-    [storageKey],
+    [storageKey, session.user.id],
   );
   useEffect(() => {
     active.current = true;

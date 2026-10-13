@@ -572,3 +572,87 @@ integration.each(['portion-first', 'confirmation-first'] as const)(
   },
   15000,
 );
+
+integration(
+  'concurrent administrator demotions retain one administrator and recheck waiting permissions',
+  async () => {
+    const first = await pool.connect();
+    const second = await pool.connect();
+    await begin(first, users[0]);
+    const group = (
+      await first.query("select public.create_organization('Admin race','Berlin') as id")
+    ).rows[0].id;
+    await first.query('commit');
+    await pool.query(
+      "insert into public.organization_memberships(organization_id,user_id,role) values($1,$2,'admin')",
+      [group, users[1]],
+    );
+    async function waitForLock(pid: number) {
+      for (let i = 0; i < 100; i++) {
+        if (
+          (await pool.query('select wait_event_type from pg_stat_activity where pid=$1', [pid]))
+            .rows[0]?.wait_event_type === 'Lock'
+        )
+          return;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      throw new Error('Competing administrator mutation did not wait for the organization lock');
+    }
+    try {
+      const pid = (await second.query('select pg_backend_pid() as pid')).rows[0].pid;
+      await begin(first, users[0]);
+      await begin(second, users[1]);
+      await first.query("select public.set_organization_member_role($1,$2,'member')", [
+        group,
+        users[0],
+      ]);
+      const pending = second
+        .query("select public.set_organization_member_role($1,$2,'member')", [group, users[1]])
+        .then(
+          () => null,
+          (e) => e,
+        );
+      await waitForLock(pid);
+      await first.query('commit');
+      expect((await pending)?.message).toContain('at least one');
+      await second.query('rollback');
+      expect(
+        Number(
+          (
+            await pool.query(
+              "select count(*) as count from public.organization_memberships where organization_id=$1 and role='admin'",
+              [group],
+            )
+          ).rows[0].count,
+        ),
+      ).toBe(1);
+      // Restore two admins; revoke the waiting administrator before its invite request runs.
+      await begin(first, users[1]);
+      await first.query("select public.set_organization_member_role($1,$2,'admin')", [
+        group,
+        users[0],
+      ]);
+      await first.query('commit');
+      await begin(first, users[0]);
+      await first.query("select public.set_organization_member_role($1,$2,'member')", [
+        group,
+        users[1],
+      ]);
+      await begin(second, users[1]);
+      const invite = second.query('select public.organization_invite($1,true)', [group]).then(
+        () => null,
+        (e) => e,
+      );
+      await waitForLock(pid);
+      await first.query('commit');
+      expect((await invite)?.message).toContain('Only organization administrators');
+      await second.query('rollback');
+    } finally {
+      await first.query('rollback');
+      await second.query('rollback');
+      first.release();
+      second.release();
+    }
+  },
+  15000,
+);

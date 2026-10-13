@@ -125,6 +125,8 @@ async function backend(
   page: Page,
   options: {
     group?: boolean;
+    organizationRole?: 'admin' | 'member';
+    differentCreator?: boolean;
     legacy?: boolean;
     reviewed?: boolean;
     nominated?: boolean;
@@ -149,10 +151,35 @@ async function backend(
   let group = options.group ?? true;
   let groupRecord = {
     ...org,
+    created_by: options.differentCreator ? '00000000-0000-0000-0000-000000000002' : userId,
     latitude: null as number | null,
     longitude: null as number | null,
     location_label: null as string | null,
   };
+  const organizationMembers = [
+    {
+      organization_id: orgId,
+      user_id: userId,
+      role: options.organizationRole ?? 'admin',
+      profiles: { display_name: 'Alice' },
+    },
+    {
+      organization_id: orgId,
+      user_id: '00000000-0000-0000-0000-000000000002',
+      role: 'member',
+      profiles: { display_name: 'Bob' },
+    },
+    ...(options.multipleOrganizations
+      ? [
+          {
+            organization_id: otherOrgId,
+            user_id: userId,
+            role: 'admin',
+            profiles: { display_name: 'Alice' },
+          },
+        ]
+      : []),
+  ];
   const reviews: Review[] =
     options.legacy || options.reviewed
       ? [
@@ -321,6 +348,25 @@ async function backend(
       return;
     } else if (url.pathname === '/rest/v1/organizations')
       result = group ? [groupRecord, ...(options.multipleOrganizations ? [otherOrg] : [])] : [];
+    else if (url.pathname === '/rest/v1/organization_memberships') {
+      result = group
+        ? organizationMembers.filter(
+            (member) =>
+              (!url.searchParams.has('user_id') ||
+                url.searchParams.get('user_id') === `eq.${member.user_id}`) &&
+              (!url.searchParams.has('organization_id') ||
+                url.searchParams.get('organization_id') === `eq.${member.organization_id}`),
+          )
+        : [];
+    } else if (url.pathname === '/rest/v1/rpc/set_organization_member_role') {
+      const body = route.request().postDataJSON();
+      const member = organizationMembers.find(
+        (member) => member.organization_id === body.org && member.user_id === body.member,
+      );
+      if (member) member.role = body.new_role;
+      result = null;
+    } else if (url.pathname === '/rest/v1/rpc/organization_invite')
+      result = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     else if (url.pathname === '/rest/v1/place_ratings') {
       const ids = [...new Set(reviews.map((review) => review.place_id))];
       const aggregates = ids.map((id) => {
@@ -911,7 +957,7 @@ test('create a paid lunch, reserve portions, mark payment and leave', async ({ p
 });
 
 test('previous review history can be matched to an OSM place', async ({ page }) => {
-  const errors = await backend(page, { legacy: true });
+  const errors = await backend(page, { legacy: true, differentCreator: true });
   await signIn(page);
   await expect(page.getByText('0 reviewed spots on the map', { exact: true })).toBeVisible();
   await page.getByRole('radio', { name: 'List view', exact: true }).click();
@@ -2921,4 +2967,122 @@ test.describe('German favorites', () => {
     ).toBeDisabled();
     expect(errors).toEqual([]);
   });
+});
+
+test('administrators who did not create the organization manage colleagues and can hand over their role', async ({
+  page,
+}) => {
+  const errors = await backend(page, { differentCreator: true });
+  await signIn(page, 'Overview');
+  await page.getByRole('tab', { name: /Your team/ }).click();
+  await expect(
+    page.getByRole('button', { name: 'Set organization location', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Invite colleagues', exact: true }).click();
+  await page.getByRole('button', { name: 'Get invite', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Rotate invite code', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Members & roles', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Make Alice a member', exact: true }),
+  ).toBeDisabled();
+  await page.getByRole('button', { name: 'Make Bob an administrator', exact: true }).click();
+  await expect(page.getByText('2 members · 2 administrators', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Make Alice a member', exact: true }).click();
+  await expect(page.getByText('2 members · 1 administrator', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Make .* (member|administrator)/ })).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'Set organization location', exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Rotate invite code', exact: true })).toHaveCount(
+    0,
+  );
+  await expect(
+    page.getByText('Ask an administrator for an invitation to share.', { exact: true }),
+  ).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('a creator with a member role has no administrator controls', async ({ page }) => {
+  const errors = await backend(page, { organizationRole: 'member' });
+  await signIn(page, 'Overview');
+  await page.getByRole('tab', { name: /Your team/ }).click();
+  await expect(
+    page.getByRole('button', { name: 'Set organization location', exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole('button', { name: 'Members & roles', exact: true }).click();
+  await expect(page.getByText('Alice · You', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Make .* (member|administrator)/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Invite colleagues', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Get invite', exact: true })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test.describe('German organization roles', () => {
+  test.use({ locale: 'de-DE' });
+  test('member management follows the system language', async ({ page }) => {
+    const errors = await backend(page, { differentCreator: true });
+    await page.goto('/');
+    await page.getByLabel('E-Mail', { exact: true }).fill('alice@example.test');
+    await page.getByLabel('Passwort', { exact: true }).fill('correct-horse-battery');
+    await page.getByRole('button', { name: 'Anmelden', exact: true }).click();
+    await page.getByRole('tab', { name: /Dein Team/ }).click();
+    await page.getByRole('button', { name: 'Mitglieder & Rollen', exact: true }).click();
+    await page.getByRole('button', { name: 'Bob zum Administrator machen', exact: true }).click();
+    await expect(page.getByText('2 Mitglieder · 2 Administratoren', { exact: true })).toBeVisible();
+    await page.screenshot({ path: '/tmp/forkcast-roles-german.png', fullPage: true });
+    expect(errors).toEqual([]);
+  });
+});
+
+test('organization role changes from another administrator refresh the open screen', async ({
+  page,
+}) => {
+  const live: LiveHarness = {};
+  const errors = await backend(page, { live });
+  let role = 'admin';
+  await page.route(
+    'https://forkcast-test.supabase.co/rest/v1/organization_memberships**',
+    async (route) => {
+      const self = {
+        organization_id: orgId,
+        user_id: userId,
+        role,
+        profiles: { display_name: 'Alice' },
+      };
+      const other = {
+        organization_id: orgId,
+        user_id: '00000000-0000-0000-0000-000000000002',
+        role: 'admin',
+        profiles: { display_name: 'Bob' },
+      };
+      await route.fulfill({
+        json: new URL(route.request().url()).searchParams.has('user_id') ? [self] : [self, other],
+      });
+    },
+  );
+  await signIn(page, 'Overview');
+  await page.getByRole('tab', { name: /Your team/ }).click();
+  await page.getByRole('button', { name: 'Members & roles', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Make Alice a member', exact: true }),
+  ).toBeVisible();
+  await expect.poll(() => live.joins ?? 0).toBeGreaterThan(0);
+  role = 'member';
+  live.emit!('organization');
+  await expect(page.getByRole('button', { name: 'Make Alice a member', exact: true })).toHaveCount(
+    0,
+  );
+  await expect(
+    page.getByRole('button', { name: 'Set organization location', exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByText('2 members · 1 administrator', { exact: true })).toBeVisible();
+  role = 'admin';
+  live.emit!('organization');
+  await expect(
+    page.getByRole('button', { name: 'Make Alice a member', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Set organization location', exact: true }),
+  ).toBeVisible();
+  expect(errors).toEqual([]);
 });

@@ -5,6 +5,7 @@ import { Linking, Pressable, Share, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useOrganizations } from '../providers/Organizations';
+import { OrganizationMembers } from '../components/OrganizationMembers';
 import { SearchAreaSettings } from '../components/SearchAreaSettings';
 import { OfficeLocationPicker } from '../components/OfficeLocationPicker';
 import type { OfficeLocation } from '../lib/types';
@@ -67,7 +68,7 @@ export function OrganizationScreen() {
   }, [orgs.pendingInvite]);
   useEffect(() => {
     setInvite('');
-  }, [orgs.current?.id]);
+  }, [orgs.current?.id, orgs.current?.role]);
   return (
     <Page>
       <Text style={styles.title}>{orgs.current ? t('Your team') : t('Pull up a chair.')}</Text>
@@ -103,17 +104,26 @@ export function OrganizationScreen() {
               </Text>
             </View>
           </View>
-          {orgs.current.created_by === session.user.id && <SearchAreaSettings />}
+          {orgs.current.role === 'admin' && <SearchAreaSettings />}
         </Card>
       )}
       <Card>
+        {orgs.current && (
+          <OrganizationSection
+            key={`members-${orgs.current.id}`}
+            title={t('Members & roles')}
+            icon="people-outline"
+          >
+            <OrganizationMembers key={orgs.current.id} />
+          </OrganizationSection>
+        )}
         {orgs.current && (
           <OrganizationSection
             key={`invite-${orgs.current.id}`}
             title={t('Invite colleagues')}
             icon="person-add-outline"
           >
-            {orgs.current.created_by === session.user.id ? (
+            {orgs.current.role === 'admin' ? (
               <>
                 <Button
                   secondary
@@ -187,7 +197,7 @@ export function OrganizationScreen() {
               </>
             ) : (
               <Text style={styles.subtitle}>
-                {t('Ask the group creator for an invitation to share.')}
+                {t('Ask an administrator for an invitation to share.')}
               </Text>
             )}
           </OrganizationSection>

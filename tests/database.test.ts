@@ -110,7 +110,7 @@ test('organizations, memberships and profiles are isolated', async () => {
   expect((await db.query('select * from public.profiles')).rows).toHaveLength(1);
   await expect(db.query('select * from public.organization_invites')).rejects.toThrow();
   await expect(db.query('select public.organization_invite($1)', [org])).rejects.toThrow(
-    'Only the group creator',
+    'Only organization administrators',
   );
   expect(await scalar('select public.join_organization($1) as value', [invite])).toBe(org);
   expect((await db.query('select * from public.organizations')).rows).toHaveLength(1);
@@ -462,7 +462,7 @@ test('migration preserves old reviews and matching moves only the selected group
   await login(bob);
   await expect(
     db.query('select public.link_legacy_place($1,$2,$3)', [org, 'old-google-place', 'osm:node:1']),
-  ).rejects.toThrow('Only the group creator');
+  ).rejects.toThrow('Only organization administrators');
   await login(alice);
   expect(
     await scalar('select public.link_legacy_place($1,$2,$3) as value', [
@@ -508,7 +508,7 @@ test('changing the search area is creator-only and keeps review history', async 
   );
   await login(bob);
   await expect(db.query('select public.set_search_area($1,$2)', [org, 'Hamburg'])).rejects.toThrow(
-    'Only the group creator',
+    'Only organization administrators',
   );
   await login(alice);
   await db.query('select public.set_search_area($1,$2)', [org, 'Berlin Mitte, Germany']);
@@ -546,7 +546,7 @@ test('organization locations are validated, member-scoped and creator-editable w
     db.query("select public.set_organization_location($1,'New office',48.1,11.5,'New address')", [
       located,
     ]),
-  ).rejects.toThrow('Only the group creator');
+  ).rejects.toThrow('Only organization administrators');
   await expect(db.query('select * from public.osm_location_cache')).rejects.toThrow();
   await login(alice);
   const history = (await db.query('select id from public.reviews where organization_id=$1', [org]))
@@ -1997,4 +1997,96 @@ test('favorites refresh through private signals without inbox notifications or r
   await db.exec('reset role');
   await db.query('delete from public.organizations where id=$1', [favoriteOrg]);
   await db.query('delete from public.places where id=$1', [id]);
+});
+
+test('roles backfill creators and support transferring administration without creator privileges', async () => {
+  await login(alice);
+  expect(
+    await scalar(
+      'select role as value from public.organization_memberships where organization_id=$1 and user_id=$2',
+      [org, alice],
+    ),
+  ).toBe('admin');
+  const group = await scalar<string>(
+    "select public.create_organization('Roles','Berlin',52.52,13.4,'Office') as value",
+  );
+  const code = await scalar<string>('select public.organization_invite($1) as value', [group]);
+  await login(bob);
+  await db.query('select public.join_organization($1)', [code]);
+  expect(
+    await scalar(
+      'select role as value from public.organization_memberships where organization_id=$1 and user_id=$2',
+      [group, bob],
+    ),
+  ).toBe('member');
+  await expect(
+    db.query("update public.organization_memberships set role='admin' where organization_id=$1", [
+      group,
+    ]),
+  ).rejects.toThrow();
+  await expect(
+    db.query("select public.set_organization_member_role($1,$2,'admin')", [group, bob]),
+  ).rejects.toThrow('Only organization administrators');
+  await expect(db.query('select public.organization_invite($1)', [group])).rejects.toThrow(
+    'Only organization administrators',
+  );
+  await expect(db.query("select public.set_search_area($1,'Paris')", [group])).rejects.toThrow(
+    'Only organization administrators',
+  );
+  await login(outsider);
+  expect(
+    (
+      await db.query('select * from public.organization_memberships where organization_id=$1', [
+        group,
+      ])
+    ).rows,
+  ).toHaveLength(0);
+  await expect(
+    db.query("select public.set_organization_member_role($1,$2,'admin')", [group, outsider]),
+  ).rejects.toThrow('Only organization administrators');
+  await login(alice);
+  await expect(
+    db.query("select public.set_organization_member_role($1,$2,'member')", [group, alice]),
+  ).rejects.toThrow('at least one');
+  await expect(
+    db.query("select public.set_organization_member_role($1,$2,'owner')", [group, bob]),
+  ).rejects.toThrow('Choose admin or member');
+  await expect(
+    db.query("select public.set_organization_member_role($1,$2,'admin')", [group, outsider]),
+  ).rejects.toThrow('not a member');
+  await db.query("select public.set_organization_member_role($1,$2,'admin')", [group, bob]);
+  await login(bob);
+  await db.query('select public.join_organization($1)', [code]);
+  expect(await scalar('select public.is_organization_admin($1) as value', [group])).toBe(true);
+  const rotated = await scalar<string>('select public.organization_invite($1,true) as value', [
+    group,
+  ]);
+  expect(rotated).not.toBe(code);
+  await db.query("select public.set_organization_location($1,'Berlin',52.53,13.41,'New office')", [
+    group,
+  ]);
+  await db.query("select public.set_organization_member_role($1,$2,'member')", [group, alice]);
+  await expect(
+    db.query("select public.set_organization_member_role($1,$2,'member')", [group, bob]),
+  ).rejects.toThrow('at least one');
+  await login(alice);
+  expect(await scalar('select public.is_organization_admin($1) as value', [group])).toBe(false);
+  await expect(db.query('select public.organization_invite($1)', [group])).rejects.toThrow(
+    'Only organization administrators',
+  );
+  await expect(
+    db.query("select public.set_organization_location($1,'Berlin',52.53,13.41,'Office')", [group]),
+  ).rejects.toThrow('Only organization administrators');
+  await expect(
+    db.query("select public.link_legacy_place($1,'legacy','osm:node:1')", [group]),
+  ).rejects.toThrow('Only organization administrators');
+  await login(bob);
+  await db.query("select public.set_organization_member_role($1,$2,'admin')", [group, alice]);
+  await login(alice);
+  expect(await scalar('select public.is_organization_admin($1) as value', [group])).toBe(true);
+  // Legacy creation RPC also produces an administrator.
+  const legacy = await scalar<string>(
+    "select public.create_organization('Legacy roles','Berlin') as value",
+  );
+  expect(await scalar('select public.is_organization_admin($1) as value', [legacy])).toBe(true);
 });

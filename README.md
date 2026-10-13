@@ -123,7 +123,7 @@ Create your own terms/privacy pages and set `EXPO_PUBLIC_TERMS_URL` and `EXPO_PU
 
 ## How OSM search works
 
-1. When creating a group, search an office address or area, select a result and optionally tap the preview map to fine-tune the pin. The saved organization pin appears immediately, even without restaurant reviews. The creator can set/change it under Your team → Set/Change organization location. Existing groups with a known cached center reuse it; others need a location selected.
+1. When creating a group, search an office address or area, select a result and optionally tap the preview map to fine-tune the pin. The saved organization pin appears immediately, even without restaurant reviews. Administrators can set/change it under Your team → Set/Change organization location. Existing groups with a known cached center reuse it; others need a location selected.
 2. On the first explicit restaurant search, the backend uses the selected office coordinates (or geocodes the text area once for an older group) and queries Overpass for named restaurants, cafes, fast food, food courts and bakeries within **3 km** of its center.
 3. The regional catalogue and normalized external place facts are saved in Postgres. IDs include both OSM element type and number, for example `osm:node:123` and `osm:way:123`, so different elements cannot collide.
 4. Subsequent searches match name/cuisine/address against the cached catalogue. There is no upstream request per keystroke. Map/list and detail reads reuse fresh facts, refreshing saved OSM objects by ID after 24 hours; manual source refresh is also available.
@@ -146,7 +146,7 @@ The catalogue contains an offline snapshot of 104 common options from the [OSM i
 
 ## Organization location upgrade
 
-Apply `202610120012_organization_location.sql`, restart/redeploy the `places` function and reload the app. The migration preserves groups and reviews, adds saved coordinates, and reuses valid existing regional cache centers. New groups select a location before creation; creators can set a location for older groups or change it later. Changing it clears only the restaurant catalogue, preserving review history.
+Apply `202610120012_organization_location.sql`, restart/redeploy the `places` function and reload the app. The migration preserves groups and reviews, adds saved coordinates, and reuses valid existing regional cache centers. New groups select a location before creation; administrators can set a location for older groups or change it later. Changing it clears only the restaurant catalogue, preserving review history.
 
 Location lookup runs only when **Find organization location** is pressed, not while typing. The authenticated backend permits lookup before group creation, caches matching queries for 30 days and uses the same project-wide Nominatim request gate as restaurant search. The office point also becomes the center of the 3 km restaurant search. Public [Nominatim usage rules](https://operations.osmfoundation.org/policies/nominatim/) apply: no autocomplete, at most one request per second for the whole app, attribution and application identification. The default endpoint is configurable for an operator-managed provider.
 
@@ -156,7 +156,7 @@ Apply **`202610120010_osm.sql`** before deploying the updated function/app. Earl
 
 The migration adds provider metadata and cache tables; it does not delete reviews or guess matches. Previous Google entries remain in the reviewed-place list with their original authors, dates, comments and ratings. They have no invented coordinates and are absent from the map until matched.
 
-The **group creator** opens a previous entry, taps **Match to an OSM place**, searches for the correct restaurant and confirms it. `link_legacy_place` atomically changes only that group's reviews to the OSM identifier. If the target already has reviews, both histories contribute to the aggregate. Another group's history is untouched. The original external Google reference can be opened to help identify the restaurant, but the app makes no Google API calls.
+An **organization administrator** opens a previous entry, taps **Match to an OSM place**, searches for the correct restaurant and confirms it. `link_legacy_place` atomically changes only that group's reviews to the OSM identifier. If the target already has reviews, both histories contribute to the aggregate. Another group's history is untouched. The original external Google reference can be opened to help identify the restaurant, but the app makes no Google API calls.
 
 Google API environment variables/secrets are no longer read and can be removed from your own configuration.
 
@@ -190,7 +190,7 @@ OAuth uses PKCE. Web returns to the app's current path; installed apps return to
 
 ## Organizations, portions, images and payments
 
-Members can create groups and join by invite code. The creator can share or rotate the code; installed-app links look like `forkcast://join?code=…`. Incoming invites survive authentication. Group switching remounts navigation, and Postgres independently enforces membership.
+Members can create groups and join by invite code. Administrators can share or rotate the code; installed-app links look like `forkcast://join?code=…`. Incoming invites survive authentication. Group switching remounts navigation, and Postgres independently enforces membership.
 
 Events use Berlin calendar dates and integer EUR cents. Joins, edits and opt-outs use `set_portions`, which locks the event row and checks capacity in the same transaction. Direct table writes cannot bypass the lock. Changing quantities resets self-reported payment status.
 
@@ -228,7 +228,7 @@ FORKCAST_TEST_DATABASE_URL=postgres://postgres:forkcast-test-only@127.0.0.1:5543
 docker stop forkcast-test-db
 ```
 
-See [decisions](docs/decisions.md) and [verification](docs/verification.md). Optional AI macros, background push, advanced roles and automatic payment verification remain deferred.
+See [decisions](docs/decisions.md) and [verification](docs/verification.md). Optional AI macros, background push and automatic payment verification remain deferred.
 
 ## OSM edits and saved-place freshness
 
@@ -261,3 +261,5 @@ Cooking signup deadlines: apply `202610130031_cooking_signup_deadlines.sql` and 
 Organizer payment confirmation and signup alerts: apply `202610130032_cooking_payment_confirmation.sql`. Use **Confirm** beside an unpaid or self-reported paid participant in the event roster. This marks the participant paid, clears their unpaid reminder, and sends one private confirmation notification with no further action required. Repeated confirmation does not send another alert. Participants cannot undo organizer confirmation; changing portions resets payment/confirmation because the amount changes. The server checks the displayed portion count before confirming to reject stale amounts. Organizers receive a private new-signup alert linking to the event when a colleague books, including free lunches and notification quick joins. Quantity/payment edits do not repeat that alert, and cancellations remove it. Existing payments remain self-reported until confirmed; organizer confirmations and new-signup alerts are ordinary readable/dismissible notifications, while unresolved payment reminders remain persistent.
 
 Personal restaurant favorites: apply `202610130033_restaurant_favorites.sql`, restart/redeploy the `places` Edge Function and reload the app. Use the bookmark button on an OSM restaurant's detail page or reviewed-place list. **Places → Favorites** shows your own bookmarks for the selected organization, with search for larger lists and a **+** action to nominate a restaurant for today. The overview's suggestion dialog opens favorites first when you have them, with a switch back to reviewed saved places. No review is required. Favorites remain accessible after regional cache refreshes; nominating shares the restaurant with colleagues, while your bookmark list stays private. Removing a bookmark keeps its existing nomination. Bookmarks alone do not change the wheel pool, and saving them creates no notifications. Changes use the existing private live refresh channel.
+
+Organization roles: apply `202610130034_organization_roles.sql` before loading the updated app (already applied to local Supabase). Under **Your team → Members & roles**, administrators can promote colleagues to administrator or return them to member. Existing creators and new group creators start as administrators; invited colleagues start as members, and rejoining preserves their role. All administrators can manage invitations, the office location/search area and matching legacy restaurant entries. Creators have no special permissions after demotion. At least one administrator must remain, including during concurrent role changes. Members can view their group's roster, and role changes update through existing automatic refresh signals. Cooking controls continue to belong to each meal's organizer.

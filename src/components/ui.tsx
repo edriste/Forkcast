@@ -38,12 +38,14 @@ export function Card({ children, style }: React.PropsWithChildren<{ style?: View
 }
 export function Button({
   title,
+  accessibilityLabel,
   onPress,
   busy = false,
   disabled = false,
   secondary = false,
 }: {
   title: string;
+  accessibilityLabel?: string;
   onPress: () => void;
   busy?: boolean;
   disabled?: boolean;
@@ -54,7 +56,7 @@ export function Button({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={title}
+      accessibilityLabel={accessibilityLabel ?? title}
       accessibilityState={{ disabled: disabled || busy }}
       disabled={disabled || busy}
       onPress={onPress}
