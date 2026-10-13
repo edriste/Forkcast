@@ -2458,3 +2458,102 @@ test('office orders reject infinite and unsupported calendar dates before creati
     (await db.query('select * from public.office_orders where organization_id=$1', [group])).rows,
   ).toHaveLength(0);
 });
+
+test('cooking discussions are member-private, author-owned, validated and live after signup closes', async () => {
+  await login(alice);
+  const group = await scalar<string>(
+    "select public.create_organization('Comments','Berlin') as value",
+  );
+  const invitation = await scalar<string>('select public.organization_invite($1) as value', [
+    group,
+  ]);
+  const meal = await scalar<string>(
+    "select public.create_cooking_event($1,public.lunch_day()+1,'Soup') as value",
+    [group],
+  );
+  await db.query('select public.set_cooking_signup_deadline($1,null,true)', [meal]);
+  await login(bob);
+  await db.query('select public.join_organization($1)', [invitation]);
+  const comment = await scalar<string>(
+    "select public.save_cooking_comment($1,'  Does it contain nuts?  ') as value",
+    [meal],
+  );
+  expect(
+    await scalar<string>('select body as value from public.cooking_comments where id=$1', [
+      comment,
+    ]),
+  ).toBe('Does it contain nuts?');
+  await expect(
+    db.query("select public.save_cooking_comment($1,E'\\n\\t')", [meal]),
+  ).rejects.toThrow('between 1 and 2000');
+  await expect(
+    db.query("select public.save_cooking_comment($1,repeat('x',2001))", [meal]),
+  ).rejects.toThrow('between 1 and 2000');
+  await expect(
+    db.query('update public.cooking_comments set body=$1 where id=$2', ['Bypass', comment]),
+  ).rejects.toThrow('permission denied');
+  await login(alice);
+  expect(
+    await scalar<number>(
+      'select count(*)::int as value from public.cooking_comments where event_id=$1',
+      [meal],
+    ),
+  ).toBe(1);
+  await expect(
+    db.query("select public.save_cooking_comment($1,'Changed',$2)", [meal, comment]),
+  ).rejects.toThrow('own comments');
+  await expect(
+    db.query('select public.delete_cooking_comment($1,$2)', [meal, comment]),
+  ).rejects.toThrow('own comments');
+  await db.query("select public.save_cooking_comment($1,'No nuts; two portions are fine.')", [
+    meal,
+  ]);
+  expect(
+    await scalar<number>(
+      "select revision::int as value from public.organization_signals where organization_id=$1 and topic='cooking'",
+      [group],
+    ),
+  ).toBeGreaterThan(2);
+  await login(outsider);
+  expect(
+    await scalar<number>(
+      'select count(*)::int as value from public.cooking_comments where event_id=$1',
+      [meal],
+    ),
+  ).toBe(0);
+  await expect(
+    db.query("select public.save_cooking_comment($1,'Not a member')", [meal]),
+  ).rejects.toThrow('access denied');
+  await expect(
+    db.query('select public.delete_cooking_comment($1,$2)', [meal, comment]),
+  ).rejects.toThrow('access denied');
+  await login(bob);
+  await db.query("select public.save_cooking_comment($1,'Thanks!',$2)", [meal, comment]);
+  expect(
+    await scalar<boolean>(
+      'select edited_at is not null as value from public.cooking_comments where id=$1',
+      [comment],
+    ),
+  ).toBe(true);
+  await db.query('select public.delete_cooking_comment($1,$2)', [meal, comment]);
+  expect(
+    await scalar<number>('select count(*)::int as value from public.cooking_comments where id=$1', [
+      comment,
+    ]),
+  ).toBe(0);
+  const retained = await scalar<string>(
+    "select public.save_cooking_comment($1,'Payment question') as value",
+    [meal],
+  );
+  await db.query('select public.leave_organization($1)', [group]);
+  await expect(
+    db.query("select public.save_cooking_comment($1,'After leaving',$2)", [meal, retained]),
+  ).rejects.toThrow('access denied');
+  await login(alice);
+  expect(
+    await scalar<number>(
+      'select count(*)::int as value from public.cooking_comments where event_id=$1',
+      [meal],
+    ),
+  ).toBe(2);
+});

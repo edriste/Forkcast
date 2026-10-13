@@ -1,3 +1,4 @@
+import { CookingComments } from '../components/CookingComments';
 import { CookingParticipants } from '../components/CookingParticipants';
 import { MealFlagsEditor } from '../components/MealFlags';
 import { SignupDeadlineEditor } from '../components/SignupDeadline';
@@ -192,6 +193,12 @@ export function EventScreen({ route }: NativeStackScreenProps<RootStackParams, '
             participants={data.participants}
             userId={session.user.id}
             refresh={resource.reload}
+          />
+          <CookingComments
+            key={data.event.id}
+            eventId={data.event.id}
+            userId={session.user.id}
+            organizerId={data.event.organizer_id}
           />
           <EventImages
             eventId={data.event.id}

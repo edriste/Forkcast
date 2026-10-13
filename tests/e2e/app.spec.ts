@@ -307,6 +307,15 @@ async function backend(
   let cuisineOverride: CuisineOverride | undefined;
   let meal: CookingEvent | null = null;
   let participants: Participant[] = [];
+  let cookingThread: {
+    id: string;
+    event_id: string;
+    author_id: string;
+    body: string;
+    created_at: string;
+    edited_at: string | null;
+    profiles: { id: string; display_name: string };
+  }[] = [];
   const eventId = '20000000-0000-0000-0000-000000000001';
   let notices: LunchNotification[] = options.notifications
     ? [
@@ -786,7 +795,37 @@ async function backend(
     } else if (url.pathname === '/rest/v1/cooking_events')
       result = url.searchParams.has('id') ? meal : meal ? [meal] : [];
     else if (url.pathname === '/rest/v1/cooking_event_participants') result = participants;
-    else if (url.pathname === '/rest/v1/event_images') result = [];
+    else if (url.pathname === '/rest/v1/cooking_comments') {
+      const start = Number(
+        route.request().headers()['range']?.split('-')[0] ?? url.searchParams.get('offset') ?? 0,
+      );
+      const limit = Number(url.searchParams.get('limit') ?? 21);
+      result = [...cookingThread].reverse().slice(start, start + limit);
+    } else if (url.pathname === '/rest/v1/rpc/save_cooking_comment') {
+      const body = route.request().postDataJSON();
+      if (body.comment_id) {
+        const comment = cookingThread.find((c) => c.id === body.comment_id)!;
+        comment.body = body.comment_body;
+        comment.edited_at = new Date().toISOString();
+        result = comment.id;
+      } else {
+        result = `comment-${cookingThread.length}`;
+        cookingThread.push({
+          id: result as string,
+          event_id: body.event,
+          author_id: userId,
+          body: body.comment_body,
+          created_at: new Date().toISOString(),
+          edited_at: null,
+          profiles: { id: userId, display_name: 'Alice' },
+        });
+      }
+    } else if (url.pathname === '/rest/v1/rpc/delete_cooking_comment') {
+      cookingThread = cookingThread.filter(
+        (c) => c.id !== route.request().postDataJSON().comment_id,
+      );
+      result = null;
+    } else if (url.pathname === '/rest/v1/event_images') result = [];
     else if (url.pathname === '/rest/v1/rpc/set_portions') {
       const quantity = route.request().postDataJSON().quantity;
       const wasJoined = !!participants.length;
@@ -3866,4 +3905,111 @@ test('live order changes preserve drafts and keep the original revision for stal
     .click();
   await expect(page.getByRole('button', { name: 'Edit my items', exact: true })).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test('cooking comments can be posted, edited and deleted without reserving portions', async ({
+  page,
+}) => {
+  const errors = await backend(page, { roster: true, nonOrganizer: true });
+  await signIn(page, 'Overview');
+  await page.getByRole('button', { name: 'View lunch & portions', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Post comment', exact: true })).toBeDisabled();
+  await page.getByLabel('Your comment', { exact: true }).fill('Does this contain nuts?');
+  await page.route('**/rpc/save_cooking_comment', (route) =>
+    route.fulfill({ status: 503, json: { message: 'Temporarily unavailable' } }),
+  );
+  await page.getByRole('button', { name: 'Post comment', exact: true }).click();
+  await expect(page.getByText('Temporarily unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Your comment', { exact: true })).toHaveValue(
+    'Does this contain nuts?',
+  );
+  await page.unroute('**/rpc/save_cooking_comment');
+  await page.getByRole('button', { name: 'Post comment', exact: true }).click();
+  await expect(page.getByText('Does this contain nuts?', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Your comment', { exact: true })).toHaveValue('');
+  await page.getByRole('button', { name: 'Edit comment', exact: true }).click();
+  await page.getByLabel('Edit your comment', { exact: true }).fill('Can I have two portions?');
+  await page.getByRole('button', { name: 'Save comment', exact: true }).click();
+  await expect(page.getByText('Can I have two portions?', { exact: true })).toBeVisible();
+  await expect(page.getByText('Does this contain nuts?', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Delete comment', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByText('Can I have two portions?', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Delete comment', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm deletion', exact: true }).click();
+  await expect(
+    page.getByText('No comments yet. Start the conversation.', { exact: true }),
+  ).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('cooking comments paginate and refresh colleagues replies without replacing a draft', async ({
+  page,
+}) => {
+  const live: LiveHarness = {};
+  const errors = await backend(page, { roster: true, nonOrganizer: true, live });
+  const thread = Array.from({ length: 25 }, (_, index) => ({
+    id: `colleague-comment-${index}`,
+    event_id: '20000000-0000-0000-0000-000000000001',
+    author_id: 'bob',
+    body: `Question ${index + 1}`,
+    created_at: new Date(Date.UTC(2026, 9, 14, 10, index)).toISOString(),
+    edited_at: null,
+    profiles: { id: 'bob', display_name: 'Bob' },
+  }));
+  await page.route('**/rest/v1/cooking_comments**', (route) => {
+    const url = new URL(route.request().url());
+    const offset = Number(url.searchParams.get('offset') ?? 0);
+    const limit = Number(url.searchParams.get('limit') ?? 21);
+    return route.fulfill({ json: [...thread].reverse().slice(offset, offset + limit) });
+  });
+  await signIn(page, 'Overview');
+  await page.getByRole('button', { name: 'View lunch & portions', exact: true }).click();
+  await expect(page.getByText('Question 25', { exact: true })).toBeVisible();
+  await expect(page.getByText('Question 1', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Edit comment', exact: true })).toHaveCount(0);
+  await page.getByLabel('Your comment', { exact: true }).fill('My unfinished payment question');
+  await page.getByRole('button', { name: 'Show earlier comments', exact: true }).click();
+  await expect(page.getByText('Question 1', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Show earlier comments', exact: true }),
+  ).toHaveCount(0);
+  thread[24].body = 'The payment link is in the event.';
+  live.emit!('cooking');
+  await expect(page.getByText('The payment link is in the event.', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Your comment', { exact: true })).toHaveValue(
+    'My unfinished payment question',
+  );
+  expect(errors).toEqual([]);
+});
+
+test.describe('German cooking comments', () => {
+  test.use({ locale: 'de-DE', colorScheme: 'dark' });
+  test('questions and editing are translated in the system theme', async ({ page }) => {
+    const errors = await backend(page, { roster: true });
+    await page.goto('/');
+    await page.getByLabel('E-Mail', { exact: true }).fill('alice@example.test');
+    await page.getByLabel('Passwort', { exact: true }).fill('password123');
+    await page.getByRole('button', { name: 'Anmelden', exact: true }).click();
+    await page
+      .getByRole('button', { name: 'Mittagessen & Portionen ansehen', exact: true })
+      .click();
+    await expect(
+      page.getByRole('heading', { name: 'Fragen & Kommentare', exact: true }),
+    ).toBeVisible();
+    await page.getByLabel('Dein Kommentar', { exact: true }).fill('Sind Nüsse enthalten?');
+    await page.getByRole('button', { name: 'Kommentar senden', exact: true }).click();
+    await expect(page.getByText('Sind Nüsse enthalten?', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Kommentar bearbeiten', exact: true }).click();
+    await expect(page.getByLabel('Deinen Kommentar bearbeiten', { exact: true })).toHaveValue(
+      'Sind Nüsse enthalten?',
+    );
+    await page.getByRole('button', { name: 'Bearbeitung abbrechen', exact: true }).click();
+    await expect(page.getByLabel('Dein Kommentar', { exact: true })).toHaveValue('');
+    await page
+      .getByRole('heading', { name: 'Fragen & Kommentare', exact: true })
+      .scrollIntoViewIfNeeded();
+    await page.screenshot({ path: '/tmp/forkcast-comments-german.png' });
+    expect(errors).toEqual([]);
+  });
 });
