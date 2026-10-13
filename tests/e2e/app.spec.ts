@@ -136,6 +136,8 @@ async function backend(
     roster?: boolean;
     nonOrganizer?: boolean;
     signupDeadline?: string | null;
+    confirmedPayment?: boolean;
+    organizerSignups?: boolean;
     sourceUpdates?: boolean;
     live?: LiveHarness;
   } = {},
@@ -251,6 +253,20 @@ async function backend(
         },
       ]
     : [];
+  if (options.confirmedPayment || options.organizerSignups)
+    notices = [
+      {
+        id: options.confirmedPayment ? 'confirmed' : 'joined',
+        event_id: eventId,
+        kind: options.confirmedPayment ? 'payment_confirmed' : 'cooking_joined',
+        title: 'Team curry',
+        meal_date: localDate(),
+        actor_name: 'Bob',
+        price_cents: 425,
+        portions: options.confirmedPayment ? 1 : 2,
+        read_at: null,
+      },
+    ];
   if (options.notifications || options.roster)
     meal = {
       id: eventId,
@@ -275,6 +291,7 @@ async function backend(
         user_id: userId,
         portions: 1,
         paid: true,
+        payment_confirmed_at: options.confirmedPayment ? new Date().toISOString() : null,
         profiles: { id: userId, display_name: 'Alice' },
       },
       {
@@ -494,6 +511,12 @@ async function backend(
         profiles: { id: userId, display_name: 'Alice' },
       };
       result = eventId;
+    } else if (url.pathname === '/rest/v1/rpc/confirm_cooking_payment') {
+      const body = route.request().postDataJSON();
+      const target = participants.find((p) => p.user_id === body.participant)!;
+      target.paid = true;
+      target.payment_confirmed_at ??= new Date().toISOString();
+      result = null;
     } else if (url.pathname === '/rest/v1/rpc/set_cooking_signup_deadline') {
       const body = route.request().postDataJSON();
       meal!.signup_deadline = body.close_now ? new Date().toISOString() : body.deadline;
@@ -2667,6 +2690,92 @@ test.describe('German signup deadlines', () => {
     ).toBeVisible();
     await page.getByRole('button', { name: 'Anmeldung wieder öffnen', exact: true }).click();
     await expect(page.getByLabel('Deine Portionen', { exact: true })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+});
+
+test('organizers receive signup alerts and can confirm an unpaid colleague from the roster', async ({
+  page,
+}) => {
+  const errors = await backend(page, { roster: true, organizerSignups: true });
+  await signIn(page, 'Overview');
+  await page.getByRole('button', { name: 'Notifications: 1 unread', exact: true }).click();
+  const inbox = page.getByRole('dialog', { name: 'Notifications', exact: true });
+  await expect(inbox.getByText('New signup · Unread', { exact: true })).toBeVisible();
+  await expect(
+    inbox.getByText('Bob joined your lunch · 2 portions.', { exact: true }),
+  ).toBeVisible();
+  await expect(inbox.getByRole('button', { name: 'Join · 1 portion', exact: true })).toHaveCount(0);
+  await inbox.getByRole('button', { name: 'View lunch', exact: true }).click();
+  await expect(page.getByText('Participants · 3', { exact: true })).toBeVisible();
+  const confirming = page.waitForRequest('**/rpc/confirm_cooking_payment');
+  await page.getByRole('button', { name: 'Confirm payment for Bob', exact: true }).click();
+  expect((await confirming).postDataJSON()).toEqual({
+    event: '20000000-0000-0000-0000-000000000001',
+    participant: '00000000-0000-0000-0000-000000000002',
+    expected_portions: 2,
+  });
+  await expect(page.getByText('Confirmed', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Confirm payment for Bob', exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByText('Paid · 3 · €25.50', { exact: true })).toBeVisible();
+  await page
+    .getByText('Participants · 3', { exact: true })
+    .evaluate((element) => element.scrollIntoView({ block: 'start' }));
+  await page.screenshot({ path: '/tmp/forkcast-confirmed-roster.png' });
+  expect(errors).toEqual([]);
+});
+
+test('participant payment confirmation is a normal notification and needs no further payment action', async ({
+  page,
+}) => {
+  const errors = await backend(page, { roster: true, nonOrganizer: true, confirmedPayment: true });
+  await signIn(page, 'Overview');
+  await page.getByRole('button', { name: 'Notifications: 1 unread', exact: true }).click();
+  const inbox = page.getByRole('dialog', { name: 'Notifications', exact: true });
+  await expect(inbox.getByText('Bob confirmed your €4.25 payment.', { exact: true })).toBeVisible();
+  await expect(
+    inbox.getByRole('button', { name: 'Dismiss notification', exact: true }),
+  ).toBeVisible();
+  await inbox.getByRole('button', { name: 'View lunch & payment', exact: true }).click();
+  await expect(
+    page.getByText('Payment has been confirmed by the organizer.', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText('Confirmed · €4.25', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Marked paid — undo', exact: true })).toHaveCount(
+    0,
+  );
+  await expect(page.getByRole('button', { name: /^Pay .* with PayPal$/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Confirm payment for / })).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'Notifications: 0 unread', exact: true }),
+  ).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test.describe('German payment and signup alerts', () => {
+  test.use({ locale: 'de-DE' });
+  test('payment confirmation and organizer signup alerts follow system language', async ({
+    page,
+  }) => {
+    const errors = await backend(page, { roster: true, organizerSignups: true });
+    await page.goto('/');
+    await page.getByLabel('E-Mail', { exact: true }).fill('alice@example.test');
+    await page.getByLabel('Passwort', { exact: true }).fill('password123');
+    await page.getByRole('button', { name: 'Anmelden', exact: true }).click();
+    await page
+      .getByRole('button', { name: 'Benachrichtigungen: 1 ungelesen', exact: true })
+      .click();
+    const inbox = page.getByRole('dialog', { name: 'Benachrichtigungen', exact: true });
+    await expect(
+      inbox.getByText('Bob hat sich für dein Mittagessen angemeldet · 2 Portionen.', {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await inbox.getByRole('button', { name: 'Essen ansehen', exact: true }).click();
+    await page.getByRole('button', { name: 'Zahlung von Bob bestätigen', exact: true }).click();
+    await expect(page.getByText('Bestätigt', { exact: true })).toBeVisible();
     expect(errors).toEqual([]);
   });
 });

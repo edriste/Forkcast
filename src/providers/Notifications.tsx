@@ -6,7 +6,12 @@ import { message, supabase } from '../lib/supabase';
 export type LunchNotification = {
   id: string;
   event_id: string;
-  kind: 'cooking_scheduled' | 'payment_due' | 'payment_received';
+  kind:
+    | 'cooking_scheduled'
+    | 'payment_due'
+    | 'payment_received'
+    | 'payment_confirmed'
+    | 'cooking_joined';
   title: string | null;
   meal_date: string;
   signup_deadline?: string | null;

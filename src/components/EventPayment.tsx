@@ -28,6 +28,16 @@ export function EventPayment({
         <Text style={styles.subtitle}>{t('No payment needed.')}</Text>
       </Card>
     );
+  if (participant.payment_confirmed_at)
+    return (
+      <Card>
+        <Text style={styles.heading}>{t('Your lunch payment')}</Text>
+        <Text style={styles.text}>
+          {t('Confirmed · {amount}', { amount: money(participant.portions * event.price_cents) })}
+        </Text>
+        <Text style={styles.subtitle}>{t('Payment has been confirmed by the organizer.')}</Text>
+      </Card>
+    );
   return (
     <Card>
       <Text style={styles.heading}>{t('Your lunch payment')}</Text>

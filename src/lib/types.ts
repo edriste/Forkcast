@@ -44,6 +44,7 @@ export type CookingEvent = {
   profiles: Profile | null;
 };
 export type Participant = {
+  payment_confirmed_at?: string | null;
   event_id: string;
   user_id: string;
   portions: number;

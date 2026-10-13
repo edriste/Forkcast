@@ -1,22 +1,28 @@
 import React from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { CookingEvent, Participant } from '../lib/types';
 import { useLocale } from '../providers/Locale';
-import { Card, Empty, useTheme } from './ui';
+import { Card, Empty, Notice, useAction, useTheme } from './ui';
+import { supabase } from '../lib/supabase';
+import { useNotifications } from '../providers/Notifications';
 import { InfoDisclosure } from './compact';
 export function CookingParticipants({
   event,
   participants,
   userId,
+  refresh,
 }: {
   event: CookingEvent;
   participants: Participant[];
   userId: string;
+  refresh: () => Promise<void>;
 }) {
   const { t, money } = useLocale();
   const { styles, colors } = useTheme();
   const organizer = event.organizer_id === userId;
+  const action = useAction();
+  const notifications = useNotifications();
   const sorted = [...participants].sort((a, b) =>
     (a.profiles?.display_name ?? '').localeCompare(b.profiles?.display_name ?? ''),
   );
@@ -46,16 +52,64 @@ export function CookingParticipants({
           {money(p.portions * event.price_cents)}
         </Text>
       </View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-        <Ionicons
-          name={event.price_cents === 0 || p.paid ? 'checkmark-circle-outline' : 'time-outline'}
-          size={18}
-          color={colors.accent}
-          accessible={false}
-        />
-        <Text style={styles.text}>
-          {event.price_cents === 0 ? t('Free') : p.paid ? t('Paid') : t('Unpaid')}
-        </Text>
+      <View style={{ alignItems: 'flex-end', gap: 4 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <Ionicons
+            name={event.price_cents === 0 || p.paid ? 'checkmark-circle-outline' : 'time-outline'}
+            size={18}
+            color={colors.accent}
+            accessible={false}
+          />
+          <Text style={styles.text}>
+            {event.price_cents === 0
+              ? t('Free')
+              : p.payment_confirmed_at
+                ? t('Confirmed')
+                : p.paid
+                  ? t('Paid')
+                  : t('Unpaid')}
+          </Text>
+        </View>
+        {organizer && event.price_cents > 0 && !p.payment_confirmed_at && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('Confirm payment for {name}', {
+              name: p.profiles?.display_name ?? t('Colleague'),
+            })}
+            accessibilityState={{ disabled: action.busy }}
+            disabled={action.busy}
+            onPress={() =>
+              action.run(async () => {
+                const { error } = await supabase.rpc('confirm_cooking_payment', {
+                  event: event.id,
+                  participant: p.user_id,
+                  expected_portions: p.portions,
+                });
+                await refresh();
+                await notifications.refresh();
+                if (error) throw error;
+              })
+            }
+            style={({ pressed }) => ({
+              minHeight: 44,
+              paddingHorizontal: 10,
+              borderRadius: 12,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 4,
+              backgroundColor: colors.light,
+              opacity: action.busy ? 0.5 : pressed ? 0.7 : 1,
+            })}
+          >
+            <Ionicons
+              name="checkmark-done-outline"
+              size={18}
+              color={colors.accent}
+              accessible={false}
+            />
+            <Text style={[styles.text, { color: colors.accent }]}>{t('Confirm')}</Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );
@@ -67,7 +121,9 @@ export function CookingParticipants({
       <InfoDisclosure title={t('At the table ·') + ' ' + participants.length}>
         {!participants.length ? empty : sorted.map(row)}
         {!!event.price_cents && (
-          <Text style={styles.subtitle}>{t('Payment status is self-reported.')}</Text>
+          <Text style={styles.subtitle}>
+            {t('Paid statuses are self-reported unless confirmed by the organizer.')}
+          </Text>
         )}
       </InfoDisclosure>
     );
@@ -84,7 +140,9 @@ export function CookingParticipants({
           <Text style={styles.text}>
             {t('Awaiting payment · {count}', { count: unpaid.length })} · {money(amount(unpaid))}
           </Text>
-          <Text style={styles.subtitle}>{t('Payment status is self-reported.')}</Text>
+          <Text style={styles.subtitle}>
+            {t('Paid statuses are self-reported unless confirmed by the organizer.')}
+          </Text>
         </>
       )}
       {!participants.length ? (
@@ -107,6 +165,7 @@ export function CookingParticipants({
           )}
         </>
       )}
+      <Notice error={action.error} />
     </Card>
   );
 }

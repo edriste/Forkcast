@@ -191,6 +191,7 @@ export function EventScreen({ route }: NativeStackScreenProps<RootStackParams, '
             event={data.event}
             participants={data.participants}
             userId={session.user.id}
+            refresh={resource.reload}
           />
           <EventImages
             eventId={data.event.id}

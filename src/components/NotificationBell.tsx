@@ -176,7 +176,11 @@ export function NotificationBell({ onOpen }: { onOpen: (eventId: string) => void
                         ? 'New office cooking'
                         : item.kind === 'payment_due'
                           ? 'Payment reminder'
-                          : 'Payment update',
+                          : item.kind === 'payment_confirmed'
+                            ? 'Payment confirmed'
+                            : item.kind === 'cooking_joined'
+                              ? 'New signup'
+                              : 'Payment update',
                     )}
                     {!item.read_at ? ` · ${t('Unread')}` : ''}
                   </Text>
@@ -189,16 +193,30 @@ export function NotificationBell({ onOpen }: { onOpen: (eventId: string) => void
                         ? t('You haven’t marked {amount} as paid for this lunch.', {
                             amount: money((item.portions ?? 0) * item.price_cents),
                           })
-                        : t('{name} marked {amount} as paid (self-reported).', {
-                            name: item.actor_name,
-                            amount: money((item.portions ?? 0) * item.price_cents),
-                          })}
+                        : item.kind === 'payment_confirmed'
+                          ? t('{name} confirmed your {amount} payment.', {
+                              name: item.actor_name,
+                              amount: money((item.portions ?? 0) * item.price_cents),
+                            })
+                          : item.kind === 'cooking_joined'
+                            ? t(
+                                item.portions === 1
+                                  ? '{name} joined your lunch · 1 portion.'
+                                  : '{name} joined your lunch · {count} portions.',
+                                { name: item.actor_name, count: item.portions ?? 0 },
+                              )
+                            : t('{name} marked {amount} as paid (self-reported).', {
+                                name: item.actor_name,
+                                amount: money((item.portions ?? 0) * item.price_cents),
+                              })}
                   </Text>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <View style={{ flex: 1 }}>
                       <Button
                         title={t(
-                          item.kind === 'payment_due' ? 'View lunch & payment' : 'View lunch',
+                          item.kind === 'payment_due' || item.kind === 'payment_confirmed'
+                            ? 'View lunch & payment'
+                            : 'View lunch',
                         )}
                         busy={action.busy}
                         onPress={() =>

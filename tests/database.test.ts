@@ -1615,3 +1615,209 @@ test('closed cooking blocks new bookings and increases while allowing reduction,
     ),
   ).toBe(1);
 });
+
+test('organizer confirmation settles payment and privately notifies the participant once', async () => {
+  await login(alice);
+  const meal = await scalar<string>(
+    "select public.create_cooking_event($1,public.lunch_day()+1,'Confirmed payment',null,10,425,'Alice') as value",
+    [org],
+  );
+  await login(bob);
+  await db.query('select public.set_portions($1,2)', [meal]);
+  const inbox = () =>
+    scalar<{
+      items: {
+        id: string;
+        kind: string;
+        event_id: string;
+        read_at: string | null;
+        actor_name: string;
+        portions: number;
+        price_cents: number;
+      }[];
+    }>('select public.notification_inbox($1) as value', [org]);
+  expect((await inbox()).items.some((n) => n.event_id === meal && n.kind === 'payment_due')).toBe(
+    true,
+  );
+  await expect(
+    db.query('select public.confirm_cooking_payment($1,$2,2)', [meal, bob]),
+  ).rejects.toThrow('Only the organizer');
+  await expect(
+    db.query('update public.cooking_event_participants set paid=true where event_id=$1', [meal]),
+  ).rejects.toThrow('permission denied');
+  await login(outsider);
+  await expect(
+    db.query('select public.confirm_cooking_payment($1,$2,2)', [meal, bob]),
+  ).rejects.toThrow('access denied');
+  await login(alice);
+  await expect(
+    db.query('select public.confirm_cooking_payment($1,$2,3)', [meal, bob]),
+  ).rejects.toThrow('Portions changed');
+  await db.query('select public.confirm_cooking_payment($1,$2,2)', [meal, bob]);
+  expect(
+    await scalar(
+      'select paid and payment_confirmed_at is not null as value from public.cooking_event_participants where event_id=$1 and user_id=$2',
+      [meal, bob],
+    ),
+  ).toBe(true);
+  const confirmedAt = await scalar(
+    'select payment_confirmed_at as value from public.cooking_event_participants where event_id=$1 and user_id=$2',
+    [meal, bob],
+  );
+  expect(
+    (await inbox()).items.filter((n) => n.event_id === meal && n.kind === 'payment_received'),
+  ).toHaveLength(0);
+  await login(bob);
+  const notices = (await inbox()).items.filter((n) => n.event_id === meal);
+  expect(notices.map((n) => n.kind)).toEqual(['payment_confirmed']);
+  expect(notices[0]).toMatchObject({
+    actor_name: 'Alice',
+    portions: 2,
+    price_cents: 425,
+    read_at: null,
+  });
+  await db.query('select public.update_notification($1,$2,false)', [org, notices[0].id]);
+  await expect(db.query('select public.mark_payment($1,false)', [meal])).rejects.toThrow(
+    'confirmed by the organizer',
+  );
+  await login(alice);
+  await db.query('select public.confirm_cooking_payment($1,$2,2)', [meal, bob]);
+  expect(
+    await scalar(
+      'select payment_confirmed_at as value from public.cooking_event_participants where event_id=$1 and user_id=$2',
+      [meal, bob],
+    ),
+  ).toEqual(confirmedAt);
+  expect(
+    (
+      await db.query(
+        "select * from public.notifications where event_id=$1 and kind='payment_confirmed'",
+        [meal],
+      )
+    ).rows,
+  ).toHaveLength(0);
+  await login(bob);
+  expect((await inbox()).items.find((n) => n.id === notices[0].id)?.read_at).not.toBeNull();
+  await db.query('select public.update_notification($1,$2,true)', [org, notices[0].id]);
+  expect((await inbox()).items.filter((n) => n.event_id === meal)).toHaveLength(0);
+  await db.query('select public.set_portions($1,0)', [meal]);
+  await login(alice);
+  expect(
+    (await inbox()).items.some((n) => n.event_id === meal && n.kind === 'cooking_joined'),
+  ).toBe(false);
+  await expect(
+    db.query('select public.confirm_cooking_payment($1,$2,2)', [meal, bob]),
+  ).rejects.toThrow('no longer signed up');
+});
+
+test('confirming a self-reported payment replaces its organizer alert and portion changes reset confirmation', async () => {
+  await login(alice);
+  const meal = await scalar<string>(
+    "select public.create_cooking_event($1,public.lunch_day()+1,'Updated payment',null,10,500,'Alice') as value",
+    [org],
+  );
+  await login(bob);
+  await db.query('select public.set_portions($1,2)', [meal]);
+  await db.query('select public.mark_payment($1,true)', [meal]);
+  await login(alice);
+  const inbox = () =>
+    scalar<{ items: { id: string; event_id: string; kind: string }[] }>(
+      'select public.notification_inbox($1) as value',
+      [org],
+    );
+  expect(
+    (await inbox()).items.some((n) => n.event_id === meal && n.kind === 'payment_received'),
+  ).toBe(true);
+  await db.query('select public.confirm_cooking_payment($1,$2,2)', [meal, bob]);
+  expect(
+    (await inbox()).items.some((n) => n.event_id === meal && n.kind === 'payment_received'),
+  ).toBe(false);
+  await login(bob);
+  await db.query('select public.set_portions($1,2)', [meal]);
+  expect(
+    await scalar(
+      'select payment_confirmed_at is not null as value from public.cooking_event_participants where event_id=$1 and user_id=$2',
+      [meal, bob],
+    ),
+  ).toBe(true);
+  await db.query('select public.set_portions($1,3)', [meal]);
+  expect(
+    await scalar(
+      'select not paid and payment_confirmed_at is null as value from public.cooking_event_participants where event_id=$1 and user_id=$2',
+      [meal, bob],
+    ),
+  ).toBe(true);
+  const changed = (await inbox()).items.filter((n) => n.event_id === meal);
+  expect(changed.map((n) => n.kind)).toEqual(['payment_due']);
+  await login(alice);
+  await expect(
+    db.query('select public.confirm_cooking_payment($1,$2,2)', [meal, bob]),
+  ).rejects.toThrow('Portions changed');
+  await db.query('select public.confirm_cooking_payment($1,$2,3)', [meal, bob]);
+  await login(bob);
+  expect((await inbox()).items.filter((n) => n.event_id === meal).map((n) => n.kind)).toEqual([
+    'payment_confirmed',
+  ]);
+  await db.exec('reset role');
+  await expect(
+    db.query(
+      'update public.cooking_event_participants set paid=false where event_id=$1 and user_id=$2',
+      [meal, bob],
+    ),
+  ).rejects.toThrow('confirmed_payment_is_paid');
+});
+
+test('organizers receive new-signup alerts for colleagues, including free meals, without repeats on edits', async () => {
+  await login(alice);
+  const meal = await scalar<string>(
+    "select public.create_cooking_event($1,public.lunch_day()+1,'Signup alerts') as value",
+    [org],
+  );
+  await db.query('select public.set_portions($1,1)', [meal]);
+  const inbox = () =>
+    scalar<{
+      items: {
+        id: string;
+        event_id: string;
+        kind: string;
+        portions: number;
+        read_at: string | null;
+      }[];
+    }>('select public.notification_inbox($1) as value', [org]);
+  expect(
+    (await inbox()).items.some((n) => n.event_id === meal && n.kind === 'cooking_joined'),
+  ).toBe(false);
+  await login(bob);
+  await db.query('select public.set_portions($1,2)', [meal]);
+  expect(
+    (await inbox()).items.some((n) => n.event_id === meal && n.kind === 'cooking_joined'),
+  ).toBe(false);
+  await login(alice);
+  const joined = (await inbox()).items.find(
+    (n) => n.event_id === meal && n.kind === 'cooking_joined',
+  )!;
+  expect(joined).toMatchObject({ portions: 2, read_at: null });
+  await db.query('select public.update_notification($1,$2,false)', [org, joined.id]);
+  await expect(
+    db.query('select public.confirm_cooking_payment($1,$2,2)', [meal, bob]),
+  ).rejects.toThrow('No payment is needed');
+  await login(bob);
+  await db.query('select public.set_portions($1,1)', [meal]);
+  await login(alice);
+  const edited = (await inbox()).items.find(
+    (n) => n.event_id === meal && n.kind === 'cooking_joined',
+  )!;
+  expect(edited.id).toBe(joined.id);
+  expect(edited.read_at).not.toBeNull();
+  expect(edited.portions).toBe(1);
+  await login(bob);
+  await db.query('select public.set_portions($1,0)', [meal]);
+  await db.query('select public.set_portions($1,1)', [meal]);
+  await login(alice);
+  const rejoined = (await inbox()).items.filter(
+    (n) => n.event_id === meal && n.kind === 'cooking_joined',
+  );
+  expect(rejoined).toHaveLength(1);
+  expect(rejoined[0].id).not.toBe(joined.id);
+  expect(rejoined[0].read_at).toBeNull();
+});

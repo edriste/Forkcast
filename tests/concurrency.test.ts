@@ -493,3 +493,82 @@ integration.each(['event', 'organization'] as const)(
   },
   15000,
 );
+
+integration.each(['portion-first', 'confirmation-first'] as const)(
+  'payment confirmation and portion changes serialize correctly (%s)',
+  async (order) => {
+    const event = (
+      await pool.query(
+        "insert into public.cooking_events(organization_id,organizer_id,meal_date,title,price_cents,paypal_handle) values($1,$2,current_date+1,'Payment race',425,'TestOnly') returning id",
+        [org, users[0]],
+      )
+    ).rows[0].id;
+    await pool.query(
+      'insert into public.cooking_event_participants(event_id,user_id,portions) values($1,$2,2)',
+      [event, users[1]],
+    );
+    const holder = await pool.connect();
+    const waiter = await pool.connect();
+    try {
+      const pid = (await waiter.query('select pg_backend_pid() as pid')).rows[0].pid;
+      await begin(holder, order === 'portion-first' ? users[1] : users[0]);
+      await begin(waiter, order === 'portion-first' ? users[0] : users[1]);
+      if (order === 'portion-first')
+        await holder.query('select public.set_portions($1,3)', [event]);
+      else await holder.query('select public.confirm_cooking_payment($1,$2,2)', [event, users[1]]);
+      const waiting = (
+        order === 'portion-first'
+          ? waiter.query('select public.confirm_cooking_payment($1,$2,2)', [event, users[1]])
+          : waiter.query('select public.set_portions($1,3)', [event])
+      ).then(
+        () => null,
+        (error) => error,
+      );
+      let blocked = false;
+      for (let i = 0; i < 100; i++) {
+        if (
+          (await pool.query('select wait_event_type from pg_stat_activity where pid=$1', [pid]))
+            .rows[0]?.wait_event_type === 'Lock'
+        ) {
+          blocked = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(blocked).toBe(true);
+      await holder.query('commit');
+      const error = await waiting;
+      if (order === 'portion-first') {
+        expect(error?.message).toContain('Portions changed');
+        await waiter.query('rollback');
+      } else {
+        expect(error).toBeNull();
+        await waiter.query('commit');
+      }
+      expect(
+        (
+          await pool.query(
+            'select portions,paid,payment_confirmed_at from public.cooking_event_participants where event_id=$1 and user_id=$2',
+            [event, users[1]],
+          )
+        ).rows[0],
+      ).toEqual({ portions: 3, paid: false, payment_confirmed_at: null });
+      expect(
+        Number(
+          (
+            await pool.query(
+              "select count(*) as total from public.notifications where event_id=$1 and kind='payment_confirmed'",
+              [event],
+            )
+          ).rows[0].total,
+        ),
+      ).toBe(0);
+    } finally {
+      await holder.query('rollback');
+      await waiter.query('rollback');
+      holder.release();
+      waiter.release();
+    }
+  },
+  15000,
+);
