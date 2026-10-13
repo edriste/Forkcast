@@ -21,6 +21,9 @@ import { PlacesScreen } from './screens/PlacesScreen';
 import { OverviewScreen } from './screens/OverviewScreen';
 import { CookingScreen } from './screens/CookingScreen';
 import { CreateEventScreen } from './screens/CreateEventScreen';
+import { CreateOrderScreen } from './screens/CreateOrderScreen';
+import { OrdersScreen } from './screens/OrdersScreen';
+import { OrderScreen } from './screens/OrderScreen';
 import { EventScreen } from './screens/EventScreen';
 import type { RootStackParams, MainTabParams } from './navigation';
 const Stack = createNativeStackNavigator<RootStackParams>();
@@ -37,7 +40,11 @@ function MainTabs({ initialTab }: { initialTab: keyof MainTabParams }) {
         headerTitle: () => <OrganizationSwitcher onManage={() => navigation.navigate('Profile')} />,
         headerRight: () => (
           <NotificationBell
-            onOpen={(eventId) => navigation.getParent()?.navigate('Event', { eventId })}
+            onOpen={(eventId, orderId) =>
+              orderId
+                ? navigation.getParent()?.navigate('Order', { orderId })
+                : navigation.getParent()?.navigate('Event', { eventId })
+            }
           />
         ),
         headerTintColor: colors.ink,
@@ -141,7 +148,11 @@ export function AppNavigation() {
                 screenOptions={({ navigation }) => ({
                   headerRight: () => (
                     <NotificationBell
-                      onOpen={(eventId) => navigation.navigate('Event', { eventId })}
+                      onOpen={(eventId, orderId) =>
+                        orderId
+                          ? navigation.navigate('Order', { orderId })
+                          : navigation.navigate('Event', { eventId })
+                      }
                     />
                   ),
                   headerTintColor: colors.ink,
@@ -183,6 +194,22 @@ export function AppNavigation() {
                   name="CreateEvent"
                   component={CreateEventScreen}
                   options={{ title: t('Host a lunch') }}
+                />
+                <Stack.Screen
+                  name="Orders"
+                  component={OrdersScreen}
+                  options={{ title: t('Office orders') }}
+                />
+                <Stack.Screen
+                  name="CreateOrder"
+                  component={CreateOrderScreen}
+                  options={{ title: t('Start group order') }}
+                />
+                <Stack.Screen
+                  name="Order"
+                  component={OrderScreen}
+                  getId={({ params }) => params.orderId}
+                  options={{ title: t('Group order') }}
                 />
                 <Stack.Screen
                   name="Event"

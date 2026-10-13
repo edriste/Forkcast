@@ -2182,3 +2182,279 @@ test('members can leave, administrators revoke access, and history and a last ad
     'access denied',
   );
 });
+
+test('office orders isolate members, protect drafts, lock checkout and allocate exact fees with payment notifications', async () => {
+  await login(alice);
+  const group = await scalar<string>(
+    "select public.create_organization('Order team','Berlin') as value",
+  );
+  const code = await scalar<string>('select public.organization_invite($1) as value', [group]);
+  await login(bob);
+  await db.query('select public.join_organization($1)', [code]);
+  await login(alice);
+  const order = await scalar<string>(
+    "select public.create_office_order($1,public.lunch_day()+1,'Pizza','https://example.invalid/menu',now()+interval '2 hours','Office') as value",
+    [group],
+  );
+  await login(bob);
+  let inbox = await scalar<{
+    items: { id: string; kind: string }[];
+    unread: number;
+    next_update_at: string;
+  }>('select public.notification_inbox($1) as value', [group]);
+  expect(inbox.items.map((n) => n.kind)).toContain('order_started');
+  expect(inbox.next_update_at).toBeTruthy();
+  const choices = [{ item_name: 'Margherita', quantity: 2, unit_cents: 850, notes: 'Extra basil' }];
+  await db.query('select public.save_office_order_items($1,$2,false,0)', [order, choices]);
+  expect(
+    await scalar(
+      'select choice as value from public.daily_lunch_responses where organization_id=$1 and user_id=$2',
+      [group, bob],
+    ),
+  ).toBe('ordering_in');
+  expect(
+    await scalar(
+      'select from_order as value from public.daily_lunch_responses where organization_id=$1 and user_id=$2',
+      [group, bob],
+    ),
+  ).toBe(order);
+  await expect(
+    db.query('select public.save_office_order_items($1,$2,true,0)', [order, choices]),
+  ).rejects.toThrow('Your order changed');
+  await expect(
+    db.query("select public.update_office_order($1,2,'closed')", [order]),
+  ).rejects.toThrow('Only the order organizer');
+  await expect(
+    db.query('update public.office_order_members set paid=true where order_id=$1', [order]),
+  ).rejects.toThrow();
+  await expect(db.query('select public.lock_office_order($1)', [order])).rejects.toThrow();
+  await login(outsider);
+  expect(
+    (await db.query('select * from public.office_orders where id=$1', [order])).rows,
+  ).toHaveLength(0);
+  await expect(
+    db.query('select public.save_office_order_items($1,$2,true,0)', [order, choices]),
+  ).rejects.toThrow('access denied');
+  await login(alice);
+  await db.query('select public.save_office_order_items($1,$2,true,0)', [
+    order,
+    [{ item_name: 'Pizza', quantity: 1, unit_cents: 600 }],
+  ]);
+  let version = await scalar<number>(
+    'select version as value from public.office_orders where id=$1',
+    [order],
+  );
+  await db.query("select public.update_office_order($1,$2,'closed')", [order, version]);
+  await expect(
+    db.query("select public.update_office_order($1,$2,'placed',301)", [order, version]),
+  ).rejects.toThrow('order changed');
+  version = await scalar<number>('select version as value from public.office_orders where id=$1', [
+    order,
+  ]);
+  await db.query("select public.update_office_order($1,$2,'placed',301)", [order, version]);
+  const bills = (
+    await db.query<{ user_id: string; total_cents: number; paid: boolean }>(
+      'select * from public.office_order_members where order_id=$1 order by user_id',
+      [order],
+    )
+  ).rows;
+  expect(bills.map((m) => m.total_cents)).toEqual([751, 1850]);
+  expect(bills[0].paid).toBe(true);
+  await login(bob);
+  await expect(
+    db.query('select public.save_office_order_items($1,$2,true,1)', [order, choices]),
+  ).rejects.toThrow('closed for changes');
+  inbox = await scalar('select public.notification_inbox($1) as value', [group]);
+  const due = inbox.items.find((n) => n.kind === 'order_payment_due')!;
+  expect(due).toBeTruthy();
+  await db.query('select public.read_all_notifications($1)', [group]);
+  expect(
+    await scalar('select read_at as value from public.notifications where id=$1', [due.id]),
+  ).toBeNull();
+  await expect(
+    db.query('select public.update_notification($1,$2,true)', [group, due.id]),
+  ).rejects.toThrow('cannot be dismissed');
+  await db.query('select public.set_office_order_payment($1,true,1850)', [order]);
+  await login(alice);
+  expect(
+    (
+      await scalar<{ items: { kind: string }[] }>('select public.notification_inbox($1) as value', [
+        group,
+      ])
+    ).items.map((n) => n.kind),
+  ).toContain('order_payment_received');
+  await expect(
+    db.query('select public.confirm_office_order_payment($1,$2,1851)', [order, bob]),
+  ).rejects.toThrow('amount changed');
+  await db.query('select public.confirm_office_order_payment($1,$2,1850)', [order, bob]);
+  await db.query('select public.confirm_office_order_payment($1,$2,1850)', [order, bob]);
+  await login(bob);
+  const confirmed = (
+    await scalar<{ items: { kind: string }[] }>('select public.notification_inbox($1) as value', [
+      group,
+    ])
+  ).items;
+  expect(confirmed.filter((n) => n.kind === 'order_payment_confirmed')).toHaveLength(1);
+  expect(confirmed.some((n) => n.kind === 'order_payment_due')).toBe(false);
+  await expect(
+    db.query('select public.set_office_order_payment($1,false,1850)', [order]),
+  ).rejects.toThrow('already confirmed');
+  await login(alice);
+  version = await scalar<number>('select version as value from public.office_orders where id=$1', [
+    order,
+  ]);
+  await db.query("select public.update_office_order($1,$2,'arrived')", [order, version]);
+  await login(bob);
+  expect(
+    (
+      await scalar<{ items: { kind: string }[] }>('select public.notification_inbox($1) as value', [
+        group,
+      ])
+    ).items.map((n) => n.kind),
+  ).toContain('order_arrived');
+});
+
+test('office order deadlines, cancellation and leave preserve manual lunch choices and scheduled reminders', async () => {
+  await login(alice);
+  const group = await scalar<string>(
+    "select public.create_organization('Order deadlines','Berlin') as value",
+  );
+  const code = await scalar<string>('select public.organization_invite($1) as value', [group]);
+  await login(bob);
+  await db.query('select public.join_organization($1)', [code]);
+  await login(alice);
+  const order = await scalar<string>(
+    "select public.create_office_order($1,public.lunch_day()+1,'Thai','https://example.invalid/menu',now()+interval '1 hour','Office') as value",
+    [group],
+  );
+  const items = [{ item_name: 'Curry', quantity: 1, unit_cents: 700 }];
+  await login(bob);
+  await db.query('select public.save_office_order_items($1,$2,false,0)', [order, items]);
+  expect(
+    (
+      await scalar<{ items: { kind: string }[] }>('select public.notification_inbox($1) as value', [
+        group,
+      ])
+    ).items.some((n) => n.kind === 'order_deadline'),
+  ).toBe(false);
+  await db.query('select public.read_all_notifications($1)', [group]);
+  expect(
+    await scalar(
+      "select read_at as value from public.notifications where order_id=$1 and kind='order_deadline'",
+      [order],
+    ),
+  ).toBeNull();
+  await db.exec('reset role');
+  await db.query(
+    "update public.office_orders set signup_deadline=now()+interval '5 minutes' where id=$1",
+    [order],
+  );
+  await login(bob);
+  expect(
+    (
+      await scalar<{ items: { kind: string }[] }>('select public.notification_inbox($1) as value', [
+        group,
+      ])
+    ).items.some((n) => n.kind === 'order_deadline'),
+  ).toBe(true);
+  await db.query('select public.save_office_order_items($1,$2,true,1)', [order, items]);
+  expect(
+    (
+      await scalar<{ items: { kind: string }[] }>('select public.notification_inbox($1) as value', [
+        group,
+      ])
+    ).items.some((n) => n.kind === 'order_deadline'),
+  ).toBe(false);
+  await db.exec('reset role');
+  await db.query(
+    'update public.daily_lunch_responses set from_order=null where organization_id=$1 and user_id=$2',
+    [group, bob],
+  );
+  await login(bob);
+  await db.query('select public.leave_office_order($1,2)', [order]);
+  expect(
+    await scalar(
+      'select choice as value from public.daily_lunch_responses where organization_id=$1 and user_id=$2',
+      [group, bob],
+    ),
+  ).toBe('ordering_in');
+  await db.exec('reset role');
+  await db.query(
+    "update public.daily_lunch_responses set choice='going_out' where organization_id=$1 and user_id=$2",
+    [group, bob],
+  );
+  await login(bob);
+  await db.query('select public.save_office_order_items($1,$2,true,0)', [order, items]);
+  await login(alice);
+  let version = await scalar<number>(
+    'select version as value from public.office_orders where id=$1',
+    [order],
+  );
+  await db.query("select public.update_office_order($1,$2,'cancelled')", [order, version]);
+  await login(bob);
+  expect(
+    (
+      await db.query(
+        'select * from public.daily_lunch_responses where organization_id=$1 and user_id=$2',
+        [group, bob],
+      )
+    ).rows,
+  ).toHaveLength(0);
+  expect(
+    (await db.query('select * from public.office_order_items where order_id=$1', [order])).rows,
+  ).toHaveLength(1);
+  await expect(
+    db.query('select public.save_office_order_items($1,$2,true,1)', [order, items]),
+  ).rejects.toThrow('closed for changes');
+});
+
+test('an order starter can designate a colleague while checkout remains organizer-only', async () => {
+  await login(alice);
+  const group = await scalar<string>(
+    "select public.create_organization('Delegated order','Berlin') as value",
+  );
+  const invite = await scalar<string>('select public.organization_invite($1) as value', [group]);
+  await login(bob);
+  await db.query('select public.join_organization($1)', [invite]);
+  await login(alice);
+  await expect(
+    db.query(
+      "select public.create_office_order_for_member($1,public.lunch_day()+1,'Pizza','https://example.invalid',clock_timestamp()+interval '1 hour','Office','',null,$2)",
+      [group, outsider],
+    ),
+  ).rejects.toThrow('belongs');
+  const order = await scalar<string>(
+    "select public.create_office_order_for_member($1,public.lunch_day()+1,'Pizza','https://example.invalid',clock_timestamp()+interval '1 hour','Office','',null,$2) as value",
+    [group, bob],
+  );
+  await expect(
+    db.query("select public.update_office_order($1,1,'closed')", [order]),
+  ).rejects.toThrow('Only the order organizer');
+  await login(bob);
+  expect(
+    (
+      await scalar<{ items: { kind: string }[] }>('select public.notification_inbox($1) as value', [
+        group,
+      ])
+    ).items.some((n) => n.kind === 'order_started'),
+  ).toBe(true);
+  await db.query("select public.update_office_order($1,1,'closed')", [order]);
+});
+
+test('office orders reject infinite and unsupported calendar dates before creating notifications', async () => {
+  await login(alice);
+  const group = await scalar<string>(
+    "select public.create_organization('Calendar guards','Berlin') as value",
+  );
+  for (const value of ['infinity', '10000-01-01']) {
+    await expect(
+      db.query(
+        "select public.create_office_order($1,$2::date,'Pizza','https://example.invalid',$3::timestamptz,'Office')",
+        [group, value, value],
+      ),
+    ).rejects.toThrow('office_order_calendar_dates');
+  }
+  expect(
+    (await db.query('select * from public.office_orders where organization_id=$1', [group])).rows,
+  ).toHaveLength(0);
+});

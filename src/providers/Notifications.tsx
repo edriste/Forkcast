@@ -1,17 +1,26 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useAutomaticRefresh } from './LiveUpdates';
 import { useOrganizations } from './Organizations';
+import { AppState } from 'react-native';
 import { message, supabase } from '../lib/supabase';
 
 export type LunchNotification = {
   id: string;
-  event_id: string;
+  event_id: string | null;
+  order_id?: string;
   kind:
     | 'cooking_scheduled'
     | 'payment_due'
     | 'payment_received'
     | 'payment_confirmed'
-    | 'cooking_joined';
+    | 'cooking_joined'
+    | 'order_started'
+    | 'order_deadline'
+    | 'order_placed'
+    | 'order_arrived'
+    | 'order_payment_due'
+    | 'order_payment_received'
+    | 'order_payment_confirmed';
   title: string | null;
   meal_date: string;
   signup_deadline?: string | null;
@@ -20,7 +29,7 @@ export type LunchNotification = {
   portions: number | null;
   read_at: string | null;
 };
-type Inbox = { unread: number; items: LunchNotification[] };
+type Inbox = { unread: number; items: LunchNotification[]; next_update_at?: string | null };
 type Notifications = Inbox & {
   loading: boolean;
   error: string;
@@ -62,7 +71,17 @@ export function NotificationsProvider({ children }: React.PropsWithChildren) {
   }, [refresh]);
   useAutomaticRefresh(() => {
     void refresh();
-  }, ['inbox', 'cooking', 'organization']);
+  }, ['inbox', 'cooking', 'orders', 'organization']);
+  useEffect(() => {
+    if (!inbox.next_update_at || !Number.isFinite(Date.parse(inbox.next_update_at))) return;
+    const timer = setTimeout(
+      () => {
+        if (AppState.currentState === 'active') void refresh();
+      },
+      Math.max(50, Math.min(2147483647, Date.parse(inbox.next_update_at) - Date.now() + 50)),
+    );
+    return () => clearTimeout(timer);
+  }, [inbox, refresh]);
   const mutate = async (rpc: string, args: Record<string, unknown>) => {
     const { error } = await supabase.rpc(rpc, { org, ...args });
     await refresh();

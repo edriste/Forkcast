@@ -786,3 +786,127 @@ integration(
   },
   15000,
 );
+
+integration(
+  'office order saves serialize per participant and stale checkout cannot freeze an outdated bill',
+  async () => {
+    const first = await pool.connect();
+    const second = await pool.connect();
+    try {
+      await begin(first, users[0]);
+      const order = (
+        await first.query(
+          "select public.create_office_order($1,public.lunch_day()+1,'Pizza','https://example.invalid/menu',clock_timestamp()+interval '1 hour','Office') as id",
+          [org],
+        )
+      ).rows[0].id;
+      await first.query('commit');
+      const items = [{ item_name: 'Pizza', quantity: 1, unit_cents: 800 }];
+      await begin(first, users[1]);
+      await first.query('select public.save_office_order_items($1,$2,true,0)', [
+        order,
+        JSON.stringify(items),
+      ]);
+      await begin(second, users[1]);
+      const saving = second
+        .query('select public.save_office_order_items($1,$2,true,0)', [
+          order,
+          JSON.stringify(items),
+        ])
+        .then(
+          () => null,
+          (e) => e,
+        );
+
+      await first.query('commit');
+      expect((await saving)?.message).toContain('Your order changed');
+      await second.query('rollback');
+      expect(
+        (await pool.query('select * from public.office_order_items where order_id=$1', [order]))
+          .rows,
+      ).toHaveLength(1);
+      await begin(first, users[0]);
+      const version = (
+        await first.query('select version from public.office_orders where id=$1', [order])
+      ).rows[0].version;
+      await first.query("select public.update_office_order($1,$2,'closed')", [order, version]);
+      await first.query('commit');
+      await begin(first, users[0]);
+      await expect(
+        first.query("select public.update_office_order($1,$2,'placed',0)", [order, version]),
+      ).rejects.toThrow('order changed');
+      await first.query('rollback');
+    } finally {
+      await first.query('rollback');
+      await second.query('rollback');
+      first.release();
+      second.release();
+    }
+  },
+  15000,
+);
+
+integration(
+  'queued office order signups recheck the real deadline and membership after both locks',
+  async () => {
+    const first = await pool.connect();
+    const second = await pool.connect();
+    try {
+      await begin(first, users[0]);
+      const order = (
+        await first.query(
+          "select public.create_office_order($1,public.lunch_day()+1,'Curry','https://example.invalid/menu',clock_timestamp()+interval '1 hour','Office') as id",
+          [org],
+        )
+      ).rows[0].id;
+      await first.query('commit');
+      const pid = (await second.query('select pg_backend_pid() as pid')).rows[0].pid;
+      for (const revoked of [false, true]) {
+        await begin(first, users[0]);
+        if (revoked) {
+          await first.query('select public.remove_organization_member($1,$2)', [org, users[2]]);
+        } else
+          await first.query(
+            "select public.update_office_order($1,1,'open',0,null,clock_timestamp()+interval '150 milliseconds')",
+            [order],
+          );
+        await begin(second, users[2]);
+        const saving = second
+          .query('select public.save_office_order_items($1,$2,true,0)', [
+            order,
+            JSON.stringify([{ item_name: 'Curry', quantity: 1, unit_cents: 900 }]),
+          ])
+          .then(
+            () => null,
+            (e) => e,
+          );
+        let waiting = false;
+        for (let i = 0; i < 100; i++) {
+          if (
+            (await pool.query('select wait_event_type from pg_stat_activity where pid=$1', [pid]))
+              .rows[0]?.wait_event_type === 'Lock'
+          ) {
+            waiting = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        expect(waiting).toBe(true);
+        if (!revoked) await new Promise((resolve) => setTimeout(resolve, 200));
+        await first.query('commit');
+        expect((await saving)?.message).toContain(revoked ? 'access denied' : 'closed for changes');
+        await second.query('rollback');
+      }
+      expect(
+        (await pool.query('select * from public.office_order_items where order_id=$1', [order]))
+          .rows,
+      ).toHaveLength(0);
+    } finally {
+      await first.query('rollback');
+      await second.query('rollback');
+      first.release();
+      second.release();
+    }
+  },
+  15000,
+);

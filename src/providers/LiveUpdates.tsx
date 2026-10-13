@@ -4,7 +4,8 @@ import { supabase } from '../lib/supabase';
 import { localDate } from '../lib/format';
 import { useOrganizations } from './Organizations';
 import { useSession } from './Auth';
-export type LiveTopic = 'organization' | 'places' | 'cooking' | 'lunch' | 'images' | 'inbox';
+export type LiveTopic =
+  'organization' | 'places' | 'cooking' | 'lunch' | 'images' | 'inbox' | 'orders';
 type Listener = { topics: string[]; notify: () => void };
 const Context = createContext<{
   subscribe: (topics: string[], notify: () => void) => () => void;

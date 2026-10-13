@@ -6,6 +6,7 @@ import {
   type CuisineOverride,
 } from '../../supabase/functions/_shared/cuisines';
 import type { LunchNotification } from '../../src/providers/Notifications';
+import type { OfficeOrder, OrderMember, OrderItem } from '../../src/lib/orders';
 import type { CookingEvent, Participant, Review } from '../../src/lib/types';
 const userId = '00000000-0000-0000-0000-000000000001';
 const orgId = '10000000-0000-0000-0000-000000000001';
@@ -131,6 +132,11 @@ async function backend(
   page: Page,
   options: {
     group?: boolean;
+    groupOrder?: boolean;
+    orderParticipant?: boolean;
+    nonOrderOrganizer?: boolean;
+    orderStatus?: 'open' | 'closed' | 'placed' | 'arrived';
+    orderDeadline?: string;
     office?: boolean;
     organizationRole?: 'admin' | 'member';
     differentCreator?: boolean;
@@ -248,6 +254,56 @@ async function backend(
       });
     return lunch.get(id)!;
   }
+  const orderId = '40000000-0000-0000-0000-000000000001';
+  const otherUser = '00000000-0000-0000-0000-000000000002';
+  let orderRecord: OfficeOrder | null = options.groupOrder
+    ? {
+        id: orderId,
+        organization_id: orgId,
+        organizer_id: options.nonOrderOrganizer ? otherUser : userId,
+        order_date: localDate(),
+        restaurant: 'Team pizza',
+        menu_url: 'https://example.invalid/menu',
+        signup_deadline: options.orderDeadline ?? new Date(Date.now() + 3600000).toISOString(),
+        delivery_address: 'Berlin office',
+        delivery_notes: 'Second floor',
+        paypal_handle: 'Alice',
+        status: options.orderStatus ?? 'open',
+        delivery_fee_cents: 300,
+        arrival_at: null,
+        version: 1,
+        profiles: {
+          id: options.nonOrderOrganizer ? otherUser : userId,
+          display_name: options.nonOrderOrganizer ? 'Bob' : 'Alice',
+        },
+      }
+    : null;
+  let orderMembers: OrderMember[] = options.groupOrder
+    ? [
+        {
+          order_id: orderId,
+          user_id: options.orderParticipant ? userId : otherUser,
+          ready: true,
+          revision: 1,
+          total_cents: options.orderStatus === 'placed' ? 1150 : null,
+          paid: false,
+          payment_confirmed_at: null,
+          profiles: {
+            id: options.orderParticipant ? userId : otherUser,
+            display_name: options.orderParticipant ? 'Alice' : 'Bob',
+          },
+        },
+      ]
+    : [];
+  let orderItems: OrderItem[] = orderMembers.map((member) => ({
+    id: 'item-initial',
+    order_id: orderId,
+    user_id: member.user_id,
+    item_name: 'Margherita',
+    quantity: 1,
+    unit_cents: 850,
+    notes: 'Extra basil',
+  }));
   let cuisineOverride: CuisineOverride | undefined;
   let meal: CookingEvent | null = null;
   let participants: Participant[] = [];
@@ -345,6 +401,19 @@ async function backend(
         profiles: { id: '00000000-0000-0000-0000-000000000003', display_name: 'Carol' },
       },
     ];
+  if (options.groupOrder && options.nonOrderOrganizer && options.orderStatus === 'placed')
+    notices.push({
+      id: 'order-due',
+      event_id: orderId,
+      order_id: orderId,
+      kind: 'order_payment_due',
+      title: 'Team pizza',
+      meal_date: localDate(),
+      actor_name: 'Bob',
+      price_cents: 1150,
+      portions: 1,
+      read_at: null,
+    });
   await page.route('https://forkcast-test.supabase.co/**', async (route) => {
     const url = new URL(route.request().url());
     let result: unknown;
@@ -361,7 +430,113 @@ async function backend(
             ),
           )
         : [];
-    else if (url.pathname === '/rest/v1/organization_memberships') {
+    else if (url.pathname === '/rest/v1/office_orders') {
+      const visible =
+        orderRecord &&
+        url.searchParams.get('organization_id') === `eq.${orderRecord.organization_id}`
+          ? [orderRecord]
+          : [];
+      result = url.searchParams.has('id') ? visible[0] : visible;
+    } else if (url.pathname === '/rest/v1/office_order_members') result = orderMembers;
+    else if (url.pathname === '/rest/v1/office_order_items') result = orderItems;
+    else if (
+      url.pathname === '/rest/v1/rpc/create_office_order' ||
+      url.pathname === '/rest/v1/rpc/create_office_order_for_member'
+    ) {
+      const body = route.request().postDataJSON();
+      orderRecord = {
+        id: orderId,
+        organization_id: body.org,
+        organizer_id: body.organizer ?? userId,
+        order_date: body.meal_date,
+        restaurant: body.restaurant_name,
+        menu_url: body.menu,
+        signup_deadline: body.deadline,
+        delivery_address: body.address,
+        delivery_notes: body.instructions,
+        paypal_handle: body.paypal,
+        status: 'open',
+        delivery_fee_cents: 0,
+        arrival_at: null,
+        version: 1,
+        profiles: {
+          id: body.organizer ?? userId,
+          display_name: body.organizer && body.organizer !== userId ? 'Bob' : 'Alice',
+        },
+      };
+      result = orderId;
+    } else if (url.pathname === '/rest/v1/rpc/save_office_order_items') {
+      const body = route.request().postDataJSON();
+      const mine = orderMembers.find((m) => m.user_id === userId);
+      if (mine) {
+        mine.ready = body.is_ready;
+        mine.revision++;
+      } else
+        orderMembers.push({
+          order_id: orderId,
+          user_id: userId,
+          ready: body.is_ready,
+          revision: 1,
+          total_cents: null,
+          paid: false,
+          payment_confirmed_at: null,
+          profiles: { id: userId, display_name: 'Alice' },
+        });
+      orderItems = [
+        ...orderItems.filter((i) => i.user_id !== userId),
+        ...body.items.map((item: object, i: number) => ({
+          ...item,
+          id: `order-item-${i}`,
+          order_id: orderId,
+          user_id: userId,
+        })),
+      ];
+      orderRecord!.version++;
+      if (orderRecord?.order_date === localDate()) daily(orgId).answer = 'ordering_in';
+      result = null;
+    } else if (url.pathname === '/rest/v1/rpc/leave_office_order') {
+      orderMembers = orderMembers.filter((m) => m.user_id !== userId);
+      orderItems = orderItems.filter((i) => i.user_id !== userId);
+      orderRecord!.version++;
+      result = null;
+    } else if (url.pathname === '/rest/v1/rpc/update_office_order') {
+      const body = route.request().postDataJSON();
+      orderRecord!.status = body.new_status;
+      orderRecord!.version++;
+      if (body.new_deadline) orderRecord!.signup_deadline = body.new_deadline;
+      if (body.eta) orderRecord!.arrival_at = body.eta;
+      if (body.new_status === 'placed' && body.fee_cents !== undefined) {
+        orderRecord!.delivery_fee_cents = body.fee_cents;
+        const count = orderMembers.length;
+        orderMembers
+          .sort((a, b) => a.user_id.localeCompare(b.user_id))
+          .forEach((m, index) => {
+            m.total_cents =
+              orderItems
+                .filter((i) => i.user_id === m.user_id)
+                .reduce((sum, i) => sum + i.quantity * i.unit_cents, 0) +
+              Math.floor(body.fee_cents / count) +
+              (index < body.fee_cents % count ? 1 : 0);
+            if (m.user_id === orderRecord!.organizer_id) {
+              m.paid = true;
+              m.payment_confirmed_at = new Date().toISOString();
+            }
+          });
+      }
+      result = null;
+    } else if (url.pathname === '/rest/v1/rpc/set_office_order_payment') {
+      const body = route.request().postDataJSON();
+      orderMembers.find((m) => m.user_id === userId)!.paid = body.is_paid;
+      notices = notices.filter((n) => n.id !== 'order-due');
+      result = null;
+    } else if (url.pathname === '/rest/v1/rpc/confirm_office_order_payment') {
+      const body = route.request().postDataJSON();
+      const m = orderMembers.find((m) => m.user_id === body.participant)!;
+      m.paid = true;
+      m.payment_confirmed_at = new Date().toISOString();
+      notices = notices.filter((n) => n.id !== 'order-due');
+      result = null;
+    } else if (url.pathname === '/rest/v1/organization_memberships') {
       result = group
         ? organizationMembers.filter(
             (member) =>
@@ -477,12 +652,14 @@ async function backend(
       if (body.dismiss) notices = notices.filter((n) => n.id !== body.notice);
       else {
         const n = notices.find((n) => n.id === body.notice);
-        if (n && n.kind !== 'payment_due') n.read_at = new Date().toISOString();
+        if (n && n.kind !== 'payment_due' && n.kind !== 'order_payment_due')
+          n.read_at = new Date().toISOString();
       }
       result = null;
     } else if (url.pathname === '/rest/v1/rpc/read_all_notifications') {
       notices.forEach((n) => {
-        if (n.kind !== 'payment_due') n.read_at = new Date().toISOString();
+        if (n.kind !== 'payment_due' && n.kind !== 'order_payment_due')
+          n.read_at = new Date().toISOString();
       });
       result = null;
     } else if (url.pathname === '/rest/v1/rpc/join_notification_lunch') {
@@ -638,7 +815,8 @@ async function backend(
       }
     } else if (url.pathname === '/rest/v1/rpc/mark_payment') {
       participants[0].paid = route.request().postDataJSON().is_paid;
-      if (participants[0].paid) notices = notices.filter((n) => n.kind !== 'payment_due');
+      if (participants[0].paid)
+        notices = notices.filter((n) => n.kind !== 'payment_due' && n.kind !== 'order_payment_due');
       result = null;
     } else if (url.pathname === '/rest/v1/rpc/create_organization') {
       group = true;
@@ -2171,7 +2349,9 @@ test.describe('German lunch overview', () => {
     await expect(
       page.getByRole('radio', { name: 'Ich bestelle Essen ins Büro', exact: true }),
     ).toBeChecked();
-    await expect(page.getByText('Ins Büro bestellen', { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('radio').getByText('Ins Büro bestellen', { exact: true }),
+    ).toBeVisible();
     await expect(page.getByText('0 Stimmen', { exact: true })).toBeVisible();
     await expect(
       page.getByRole('button', { name: 'Glücksrad drehen', exact: true }),
@@ -3434,5 +3614,256 @@ test('legacy places without coordinates show an unavailable distance instead of 
     page.getByText('Distance unavailable for this place.', { exact: true }),
   ).toBeVisible();
   await expect(page.getByText('0 m · straight line', { exact: true })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('group orders collect choices, mark readiness and select Ordering in', async ({ page }) => {
+  const errors = await backend(page, { groupOrder: true, nonOrderOrganizer: true });
+  await signIn(page, 'Overview');
+  await page.getByRole('button', { name: 'View order from Team pizza', exact: true }).click();
+  await page.getByLabel('Item name 1', { exact: true }).fill('Margherita');
+  await page.getByLabel('Unit price 1 (€)', { exact: true }).fill('8.50');
+  await page.getByLabel('Special requests 1', { exact: true }).fill('No olives');
+  await page.getByRole('button', { name: 'Ready to order', exact: true }).click();
+  const saved = page.waitForRequest('**/rpc/save_office_order_items');
+  await page.getByRole('button', { name: 'Save my order', exact: true }).click();
+  expect((await saved).postDataJSON()).toMatchObject({
+    is_ready: true,
+    expected_revision: 0,
+    items: [{ item_name: 'Margherita', quantity: 1, unit_cents: 850, notes: 'No olives' }],
+  });
+  await expect(page.getByRole('button', { name: 'Edit my items', exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'Go back', exact: true }).click();
+  await expect(
+    page.getByRole('radio', { name: "I'm ordering food to the office", exact: true }),
+  ).toHaveAttribute('aria-checked', 'true');
+  expect(errors).toEqual([]);
+});
+
+test('an organizer locks the combined order, finalizes fees, confirms payment and announces arrival', async ({
+  page,
+}) => {
+  const errors = await backend(page, { groupOrder: true });
+  await signIn(page, 'Overview');
+  await page.getByRole('button', { name: 'View order from Team pizza', exact: true }).click();
+  await page.getByRole('button', { name: 'Copy combined order', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Order copied', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Close order for changes', exact: true }).click();
+  await page.getByLabel('Final delivery fee (€)', { exact: true }).fill('3.00');
+  await page.getByRole('button', { name: 'Mark order placed', exact: true }).click();
+  const placed = page.waitForRequest('**/rpc/update_office_order');
+  await page
+    .getByRole('dialog', { name: 'Confirm order placed', exact: true })
+    .getByRole('button', { name: 'Confirm', exact: true })
+    .click();
+  expect((await placed).postDataJSON()).toMatchObject({ new_status: 'placed', fee_cents: 300 });
+  await page.getByRole('button', { name: 'People & payments', exact: true }).click();
+  await expect(page.getByText('€11.50 · Unpaid', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Confirm payment from Bob', exact: true }).click();
+  await expect(page.getByText('€11.50 · Payment confirmed', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Food has arrived', exact: true }).click();
+  await expect(page.getByText(/Food has arrived/).first()).toBeVisible();
+  await page.screenshot({ path: '/tmp/forkcast-order-organizer.png', fullPage: true });
+  expect(errors).toEqual([]);
+});
+
+test('office order payment reminders remain alerts and open the correct order', async ({
+  page,
+}) => {
+  const errors = await backend(page, {
+    groupOrder: true,
+    nonOrderOrganizer: true,
+    orderParticipant: true,
+    orderStatus: 'placed',
+  });
+  await signIn(page, 'Overview');
+  await page.getByRole('button', { name: 'Notifications: 1 unread', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Dismiss notification', exact: true })).toHaveCount(
+    0,
+  );
+  await expect(page.getByRole('button', { name: 'Mark all as read', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'View group order', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Mark as paid', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Organizer checkout', exact: true })).toHaveCount(
+    0,
+  );
+  await page.getByRole('button', { name: 'Mark as paid', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Notifications: 0 unread', exact: true }),
+  ).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('start a group order with menu and deadline, and expired signups show read-only choices', async ({
+  page,
+}) => {
+  const errors = await backend(page);
+  await signIn(page, 'Overview');
+  await page.getByRole('button', { name: 'Start group order', exact: true }).click();
+  await page.getByLabel('Restaurant', { exact: true }).fill('Team sushi');
+  await page.getByLabel('Menu link', { exact: true }).fill('https://example.invalid/menu');
+  const created = page.waitForRequest('**/rpc/create_office_order_for_member');
+  await page.getByRole('button', { name: 'Start group order', exact: true }).click();
+  expect((await created).postDataJSON().restaurant_name).toBe('Team sushi');
+  await expect(page.getByRole('button', { name: 'Open menu', exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test.describe('German group orders', () => {
+  test.use({ locale: 'de-DE' });
+  test('item entry and readiness follow system language', async ({ page }) => {
+    const errors = await backend(page, { groupOrder: true, nonOrderOrganizer: true });
+    await page.goto('/');
+    await page.getByLabel('E-Mail', { exact: true }).fill('alice@example.test');
+    await page.getByLabel('Passwort', { exact: true }).fill('password123');
+    await page.getByRole('button', { name: 'Anmelden', exact: true }).click();
+    await page
+      .getByRole('button', { name: 'Bestellung bei Team pizza ansehen', exact: true })
+      .click();
+    await page.getByLabel('Artikelname 1', { exact: true }).fill('Pizza');
+    await page.getByLabel('Einzelpreis 1 (€)', { exact: true }).fill('8,50');
+    await page.getByRole('button', { name: 'Bereit zum Bestellen', exact: true }).click();
+    await page.getByRole('button', { name: 'Meine Bestellung speichern', exact: true }).click();
+    await expect(
+      page.getByRole('button', { name: 'Meine Artikel bearbeiten', exact: true }),
+    ).toBeVisible();
+    await page.screenshot({ path: '/tmp/forkcast-order-german.png', fullPage: true });
+    expect(errors).toEqual([]);
+  });
+});
+
+test('order deadlines automatically close item editing while the screen stays open', async ({
+  page,
+}) => {
+  const errors = await backend(page, {
+    groupOrder: true,
+    nonOrderOrganizer: true,
+    orderDeadline: new Date(Date.now() + 5000).toISOString(),
+  });
+  await signIn(page, 'Overview');
+  await page.getByRole('button', { name: 'View order from Team pizza', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Save my order', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save my order', exact: true })).toHaveCount(0, {
+    timeout: 8000,
+  });
+  await expect(page.getByText('This order is closed for changes', { exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('a scheduled deadline reminder updates the header without opening the inbox', async ({
+  page,
+}) => {
+  const errors = await backend(page, {
+    groupOrder: true,
+    orderParticipant: true,
+    nonOrderOrganizer: true,
+  });
+  const at = new Date(Date.now() + 5000).toISOString();
+  await page.route('https://forkcast-test.supabase.co/rest/v1/rpc/notification_inbox', (route) => {
+    const due = Date.now() >= Date.parse(at);
+    return route.fulfill({
+      json: {
+        unread: due ? 1 : 0,
+        items: due
+          ? [
+              {
+                id: 'timed-order-reminder',
+                event_id: null,
+                order_id: '40000000-0000-0000-0000-000000000001',
+                kind: 'order_deadline',
+                title: 'Team pizza',
+                meal_date: localDate(),
+                actor_name: 'Bob',
+                price_cents: 0,
+                portions: 1,
+                read_at: null,
+              },
+            ]
+          : [],
+        next_update_at: due ? null : at,
+      },
+    });
+  });
+  await signIn(page, 'Overview');
+  await expect(
+    page.getByRole('button', { name: 'Notifications: 0 unread', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Notifications: 1 unread', exact: true }),
+  ).toBeVisible({ timeout: 8000 });
+  expect(errors).toEqual([]);
+});
+
+test('the order starter can select another colleague to place the order', async ({ page }) => {
+  const errors = await backend(page);
+  await signIn(page, 'Overview');
+  await page.getByRole('button', { name: 'Start group order', exact: true }).click();
+  await page.getByRole('button', { name: 'Person placing the order: Alice', exact: true }).click();
+  await page.getByRole('radio', { name: 'Bob', exact: true }).click();
+  await page.getByLabel('Restaurant', { exact: true }).fill('Shared pizza');
+  await page.getByLabel('Menu link', { exact: true }).fill('https://example.invalid/menu');
+  const request = page.waitForRequest('**/rpc/create_office_order_for_member');
+  await page.getByRole('button', { name: 'Start group order', exact: true }).click();
+  expect((await request).postDataJSON().organizer).toBe('00000000-0000-0000-0000-000000000002');
+  await expect(page.getByText('Organized by Bob', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Close order for changes', exact: true }),
+  ).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('live order changes preserve drafts and keep the original revision for stale-save protection', async ({
+  page,
+}) => {
+  const live: LiveHarness = {};
+  const errors = await backend(page, {
+    groupOrder: true,
+    nonOrderOrganizer: true,
+    orderParticipant: true,
+    live,
+  });
+  await signIn(page, 'Overview');
+  await page.getByRole('button', { name: 'View order from Team pizza', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit my items', exact: true }).click();
+  await page.getByLabel('Quantity 1', { exact: true }).fill('2');
+  await page.route('https://forkcast-test.supabase.co/rest/v1/office_order_members**', (route) =>
+    route.fulfill({
+      json: [
+        {
+          order_id: '40000000-0000-0000-0000-000000000001',
+          user_id: userId,
+          ready: false,
+          revision: 2,
+          total_cents: null,
+          paid: false,
+          payment_confirmed_at: null,
+          profiles: { id: userId, display_name: 'Alice' },
+        },
+      ],
+    }),
+  );
+  await expect.poll(() => live.joins ?? 0).toBeGreaterThan(0);
+  const reloaded = page.waitForRequest('**/office_order_members**');
+  live.emit!('orders');
+  await reloaded;
+  await expect(page.getByText('0 of 1 people ready', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Quantity 1', { exact: true })).toHaveValue('2');
+  await page.route(
+    'https://forkcast-test.supabase.co/rest/v1/rpc/save_office_order_items',
+    (route) =>
+      route.fulfill({
+        status: 400,
+        json: { code: 'P0001', message: 'Your order changed. Reload before saving.' },
+      }),
+  );
+  const save = page.waitForRequest('**/rpc/save_office_order_items');
+  await page.getByRole('button', { name: 'Save my order', exact: true }).click();
+  expect((await save).postDataJSON().expected_revision).toBe(1);
+  await page.getByRole('button', { name: 'Load latest order', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Load latest order?', exact: true })
+    .getByRole('button', { name: 'Confirm', exact: true })
+    .click();
+  await expect(page.getByRole('button', { name: 'Edit my items', exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });

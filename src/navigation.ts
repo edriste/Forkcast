@@ -12,4 +12,7 @@ export type RootStackParams = {
   Place: { placeId: string; initial?: Place };
   CreateEvent: undefined;
   Event: { eventId: string };
+  CreateOrder: undefined;
+  Orders: undefined;
+  Order: { orderId: string };
 };

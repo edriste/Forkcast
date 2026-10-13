@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { OrderNotification } from './OrderNotification';
 import { signupClosed } from '../lib/signupDeadline';
 import { useSignupClock } from '../lib/useSignupClock';
 import { useNotifications } from '../providers/Notifications';
@@ -17,7 +18,11 @@ import { useLocale } from '../providers/Locale';
 import { IconAction } from './compact';
 import { Button, Card, Empty, Notice, useAction, useTheme } from './ui';
 
-export function NotificationBell({ onOpen }: { onOpen: (eventId: string) => void }) {
+export function NotificationBell({
+  onOpen,
+}: {
+  onOpen: (eventId: string, orderId?: string) => void;
+}) {
   const inbox = useNotifications();
   const now = useSignupClock(inbox.items.map((item) => item.signup_deadline));
   const { t, displayDate, money } = useLocale();
@@ -144,7 +149,10 @@ export function NotificationBell({ onOpen }: { onOpen: (eventId: string) => void
               </Pressable>
             </View>
             <Notice error={inbox.error || action.error} />
-            {inbox.items.some((item) => item.kind !== 'payment_due' && !item.read_at) && (
+            {inbox.items.some(
+              (item) =>
+                item.kind !== 'payment_due' && item.kind !== 'order_payment_due' && !item.read_at,
+            ) && (
               <Button
                 secondary
                 title={t('Mark all as read')}
@@ -168,94 +176,98 @@ export function NotificationBell({ onOpen }: { onOpen: (eventId: string) => void
                   />
                 )
               )}
-              {inbox.items.map((item) => (
-                <Card key={item.id}>
-                  <Text style={styles.badge}>
-                    {t(
-                      item.kind === 'cooking_scheduled'
-                        ? 'New office cooking'
+              {inbox.items.map((item) =>
+                item.order_id ? (
+                  <OrderNotification key={item.id} item={item} onOpen={onOpen} onClose={close} />
+                ) : (
+                  <Card key={item.id}>
+                    <Text style={styles.badge}>
+                      {t(
+                        item.kind === 'cooking_scheduled'
+                          ? 'New office cooking'
+                          : item.kind === 'payment_due'
+                            ? 'Payment reminder'
+                            : item.kind === 'payment_confirmed'
+                              ? 'Payment confirmed'
+                              : item.kind === 'cooking_joined'
+                                ? 'New signup'
+                                : 'Payment update',
+                      )}
+                      {!item.read_at ? ` · ${t('Unread')}` : ''}
+                    </Text>
+                    <Text style={styles.heading}>{item.title ?? t('Office lunch')}</Text>
+                    <Text style={styles.subtitle}>{displayDate(item.meal_date)}</Text>
+                    <Text style={styles.text}>
+                      {item.kind === 'cooking_scheduled'
+                        ? t('{name} scheduled an office lunch.', { name: item.actor_name })
                         : item.kind === 'payment_due'
-                          ? 'Payment reminder'
-                          : item.kind === 'payment_confirmed'
-                            ? 'Payment confirmed'
-                            : item.kind === 'cooking_joined'
-                              ? 'New signup'
-                              : 'Payment update',
-                    )}
-                    {!item.read_at ? ` · ${t('Unread')}` : ''}
-                  </Text>
-                  <Text style={styles.heading}>{item.title ?? t('Office lunch')}</Text>
-                  <Text style={styles.subtitle}>{displayDate(item.meal_date)}</Text>
-                  <Text style={styles.text}>
-                    {item.kind === 'cooking_scheduled'
-                      ? t('{name} scheduled an office lunch.', { name: item.actor_name })
-                      : item.kind === 'payment_due'
-                        ? t('You haven’t marked {amount} as paid for this lunch.', {
-                            amount: money((item.portions ?? 0) * item.price_cents),
-                          })
-                        : item.kind === 'payment_confirmed'
-                          ? t('{name} confirmed your {amount} payment.', {
-                              name: item.actor_name,
+                          ? t('You haven’t marked {amount} as paid for this lunch.', {
                               amount: money((item.portions ?? 0) * item.price_cents),
                             })
-                          : item.kind === 'cooking_joined'
-                            ? t(
-                                item.portions === 1
-                                  ? '{name} joined your lunch · 1 portion.'
-                                  : '{name} joined your lunch · {count} portions.',
-                                { name: item.actor_name, count: item.portions ?? 0 },
-                              )
-                            : t('{name} marked {amount} as paid (self-reported).', {
+                          : item.kind === 'payment_confirmed'
+                            ? t('{name} confirmed your {amount} payment.', {
                                 name: item.actor_name,
                                 amount: money((item.portions ?? 0) * item.price_cents),
-                              })}
-                  </Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <View style={{ flex: 1 }}>
-                      <Button
-                        title={t(
-                          item.kind === 'payment_due' || item.kind === 'payment_confirmed'
-                            ? 'View lunch & payment'
-                            : 'View lunch',
-                        )}
-                        busy={action.busy}
-                        onPress={() =>
-                          action.run(async () => {
-                            await inbox.update(item.id);
-                            close();
-                            onOpen(item.event_id);
-                          })
-                        }
-                      />
+                              })
+                            : item.kind === 'cooking_joined'
+                              ? t(
+                                  item.portions === 1
+                                    ? '{name} joined your lunch · 1 portion.'
+                                    : '{name} joined your lunch · {count} portions.',
+                                  { name: item.actor_name, count: item.portions ?? 0 },
+                                )
+                              : t('{name} marked {amount} as paid (self-reported).', {
+                                  name: item.actor_name,
+                                  amount: money((item.portions ?? 0) * item.price_cents),
+                                })}
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <View style={{ flex: 1 }}>
+                        <Button
+                          title={t(
+                            item.kind === 'payment_due' || item.kind === 'payment_confirmed'
+                              ? 'View lunch & payment'
+                              : 'View lunch',
+                          )}
+                          busy={action.busy}
+                          onPress={() =>
+                            action.run(async () => {
+                              await inbox.update(item.id);
+                              close();
+                              onOpen(item.event_id!);
+                            })
+                          }
+                        />
+                      </View>
+                      {item.kind === 'cooking_scheduled' && !signupClosed(item, now) && (
+                        <IconAction
+                          icon="person-add-outline"
+                          title={t('Join · 1 portion')}
+                          busy={action.busy}
+                          onPress={() =>
+                            action.run(async () => {
+                              await inbox.join(item.id);
+                              close();
+                              onOpen(item.event_id!);
+                            })
+                          }
+                        />
+                      )}
+                      {item.kind !== 'payment_due' && (
+                        <IconAction
+                          icon="close-outline"
+                          title={t('Dismiss notification')}
+                          busy={action.busy}
+                          onPress={() => action.run(() => inbox.update(item.id, true))}
+                        />
+                      )}
                     </View>
-                    {item.kind === 'cooking_scheduled' && !signupClosed(item, now) && (
-                      <IconAction
-                        icon="person-add-outline"
-                        title={t('Join · 1 portion')}
-                        busy={action.busy}
-                        onPress={() =>
-                          action.run(async () => {
-                            await inbox.join(item.id);
-                            close();
-                            onOpen(item.event_id);
-                          })
-                        }
-                      />
+                    {item.kind === 'cooking_scheduled' && signupClosed(item, now) && (
+                      <Text style={styles.subtitle}>{t('Signup closed')}</Text>
                     )}
-                    {item.kind !== 'payment_due' && (
-                      <IconAction
-                        icon="close-outline"
-                        title={t('Dismiss notification')}
-                        busy={action.busy}
-                        onPress={() => action.run(() => inbox.update(item.id, true))}
-                      />
-                    )}
-                  </View>
-                  {item.kind === 'cooking_scheduled' && signupClosed(item, now) && (
-                    <Text style={styles.subtitle}>{t('Signup closed')}</Text>
-                  )}
-                </Card>
-              ))}
+                  </Card>
+                ),
+              )}
             </ScrollView>
             {inbox.items.length === 100 && (
               <Text style={styles.subtitle}>{t('Showing the latest 100 notifications.')}</Text>

@@ -4,6 +4,7 @@ import { FavoritePlaces } from '../components/FavoritePlaces';
 import { SignupDeadlineBadge } from '../components/SignupDeadline';
 import { useReducedMotion } from '../lib/useReducedMotion';
 import { LunchDialog } from '../components/LunchDialog';
+import { OrdersToday } from '../components/OrdersToday';
 import { PlaceDistance } from '../components/PlaceDistance';
 import { formatDistance, hasCoordinates } from '../lib/distance';
 import { usePlaceFilters } from '../providers/PlaceFilters';
@@ -441,6 +442,7 @@ export function OverviewScreen() {
               ))}
             </View>
             <View style={{ borderTopWidth: 1, borderColor: colors.line, paddingTop: 16, gap: 12 }}>
+              <OrdersToday day={data?.day ?? localDate()} />
               <Text accessibilityRole="header" style={[styles.badge, { color: colors.muted }]}>
                 {t('Restaurants').toUpperCase()}
               </Text>
