@@ -1,6 +1,6 @@
 # Deployment files
 
-These files support the [self-hosted deployment](../docs/self-hosting.md) and the optional [push sender](../docs/device-notifications.md). The [Cloudflare PWA deployment](../docs/cloudflare.md) uses the root `wrangler.json` and `public/_headers` instead of these Docker/Nginx files. A Cloudflare-hosted frontend can still use the push sender separately.
+These files support the [self-hosted deployment](https://github.com/edriste/Forkcast/wiki/Self-hosting) and the optional [push sender](https://github.com/edriste/Forkcast/wiki/Device-notifications). The [Cloudflare PWA deployment](https://github.com/edriste/Forkcast/wiki/Cloudflare-and-Supabase) uses the root `wrangler.json` and `public/_headers` instead of these Docker/Nginx files. A Cloudflare-hosted frontend can still use the push sender separately.
 
 | Files                                                                                                   | Purpose                                                                                       |
 | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
