@@ -1,23 +1,23 @@
-import { disableDevicePush } from '../lib/push';
-import { DevicePushSettings } from '../components/DevicePushSettings';
-import { officeAddressDisplay } from '../../supabase/functions/_shared/location';
-import { publicConfig } from '../lib/config';
-import { useCredits } from '../providers/Credits';
-import { useLocale } from '../providers/Locale';
-import React, { useEffect, useState } from 'react';
-import { Linking, Pressable, Share, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import { useAutomaticRefresh } from '../providers/LiveUpdates';
-import { useOrganizations } from '../providers/Organizations';
-import { OrganizationMembers } from '../components/OrganizationMembers';
-import { SearchAreaSettings } from '../components/SearchAreaSettings';
-import { OfficeLocationPicker } from '../components/OfficeLocationPicker';
+import React, { useEffect, useState } from 'react';
+import { Linking, Pressable, Share, Text, View } from 'react-native';
+import { officeAddressDisplay } from '../../supabase/functions/_shared/location';
+import { DevicePushSettings } from '../components/notifications/DevicePushSettings';
+import { OfficeLocationPicker } from '../components/organizations/OfficeLocationPicker';
+import { OrganizationMembers } from '../components/organizations/OrganizationMembers';
+import { SearchAreaSettings } from '../components/organizations/SearchAreaSettings';
+import { Button, Card, Chip, Field, Notice, Page, useAction, useTheme } from '../components/ui';
+import { publicConfig } from '../lib/config';
+import { inviteCode } from '../lib/invites';
+import { disableDevicePush } from '../lib/push';
+import { supabase } from '../lib/supabase';
 import type { OfficeLocation } from '../lib/types';
 import { useSession } from '../providers/Auth';
-import { inviteCode } from '../lib/invites';
-import { supabase } from '../lib/supabase';
-import { Button, Card, Chip, Field, Notice, Page, useAction, useTheme } from '../components/ui';
+import { useCredits } from '../providers/Credits';
+import { useAutomaticRefresh } from '../providers/LiveUpdates';
+import { useLocale } from '../providers/Locale';
+import { useOrganizations } from '../providers/Organizations';
 
 function OrganizationSection({
   title,

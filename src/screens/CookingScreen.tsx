@@ -1,16 +1,26 @@
-import { MealFlagBadges } from '../components/MealFlags';
-import { SignupDeadlineBadge } from '../components/SignupDeadline';
-import { useLocale } from '../providers/Locale';
-import React, { useCallback, useRef, useState } from 'react';
-import { Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RootStackParams } from '../navigation';
-import { useOrganizations } from '../providers/Organizations';
-import { IconAction, ItemRow } from '../components/compact';
+import { useCallback, useRef, useState } from 'react';
+import { Text, View } from 'react-native';
+import { MealFlagBadges } from '../components/cooking/MealFlags';
+import { SignupDeadlineBadge } from '../components/cooking/SignupDeadline';
+import {
+  Button,
+  Chip,
+  Empty,
+  IconAction,
+  ItemRow,
+  Loading,
+  Notice,
+  Page,
+  useAction,
+  useTheme,
+} from '../components/ui';
 import { events } from '../lib/cooking';
 import { useResource } from '../lib/useResource';
-import { Button, Chip, Empty, Loading, Notice, Page, useAction, useTheme } from '../components/ui';
+import type { RootStackParams } from '../navigation';
+import { useLocale } from '../providers/Locale';
+import { useOrganizations } from '../providers/Organizations';
 export function CookingScreen() {
   const { t, money, displayDate } = useLocale();
 

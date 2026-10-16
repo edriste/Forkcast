@@ -1,29 +1,28 @@
-import { PlaceDistance } from '../components/PlaceDistance';
-import { hasCoordinates } from '../lib/distance';
-import { usePlaceFilters } from '../providers/PlaceFilters';
-import { useFavorites } from '../providers/Favorites';
-import { FavoriteButton } from '../components/FavoriteButton';
-import { FavoritePlaces } from '../components/FavoritePlaces';
-import { useLocale } from '../providers/Locale';
-import React, { useCallback, useMemo, useState } from 'react';
-import { Platform, Pressable, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RootStackParams } from '../navigation';
-import { useOrganizations } from '../providers/Organizations';
+import React, { useCallback, useMemo, useState } from 'react';
+import { Platform, Pressable, Text, View } from 'react-native';
+import { OSMAttribution } from '../components/maps/OSMAttribution';
+import { ReviewedMap } from '../components/maps/ReviewedMap';
+import { FavoriteButton } from '../components/places/FavoriteButton';
+import { FavoritePlaces } from '../components/places/FavoritePlaces';
+import { PlaceDistance } from '../components/places/PlaceDistance';
+import { PlaceFilters } from '../components/places/PlaceFilters';
+import { Button, Empty, IconAction, ItemRow, Notice, Page, useTheme } from '../components/ui';
+import { hasCoordinates } from '../lib/distance';
 import {
   categories,
   filterReviewed,
-  sortReviewed,
   reviewedPlaces,
+  sortReviewed,
   type Reviewed,
 } from '../lib/reviews';
 import { useResource } from '../lib/useResource';
-import { Button, Empty, Notice, Page, useTheme } from '../components/ui';
-import { PlaceFilters } from '../components/PlaceFilters';
-import { ReviewedMap } from '../components/ReviewedMap';
-import { IconAction, ItemRow } from '../components/compact';
-import { OSMAttribution } from '../components/OSMAttribution';
+import type { RootStackParams } from '../navigation';
+import { useFavorites } from '../providers/Favorites';
+import { useLocale } from '../providers/Locale';
+import { useOrganizations } from '../providers/Organizations';
+import { usePlaceFilters } from '../providers/PlaceFilters';
 
 export function PlacesScreen() {
   const { t, placeCategory, number } = useLocale();

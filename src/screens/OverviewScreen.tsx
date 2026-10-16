@@ -1,14 +1,6 @@
-import { MealFlagBadges } from '../components/MealFlags';
-import { useFavorites } from '../providers/Favorites';
-import { FavoritePlaces } from '../components/FavoritePlaces';
-import { SignupDeadlineBadge } from '../components/SignupDeadline';
-import { useReducedMotion } from '../lib/useReducedMotion';
-import { LunchDialog } from '../components/LunchDialog';
-import { OrdersToday } from '../components/OrdersToday';
-import { PlaceDistance } from '../components/PlaceDistance';
-import { formatDistance, hasCoordinates } from '../lib/distance';
-import { usePlaceFilters } from '../providers/PlaceFilters';
-import { categoryName, filterReviewed, reviewedPlaces } from '../lib/reviews';
+import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Modal,
@@ -19,30 +11,41 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RootStackParams } from '../navigation';
-import { useLocale } from '../providers/Locale';
-import { useOrganizations } from '../providers/Organizations';
-import { supabase } from '../lib/supabase';
-import { localDate } from '../lib/format';
-import { cookingToday, lunchOverview, restaurantLeaders, type LunchChoice } from '../lib/lunch';
-import { useResource } from '../lib/useResource';
+import { MealFlagBadges } from '../components/cooking/MealFlags';
+import { SignupDeadlineBadge } from '../components/cooking/SignupDeadline';
+import { LunchWheel } from '../components/lunch/LunchWheel';
+import { OSMAttribution } from '../components/maps/OSMAttribution';
+import { OrdersToday } from '../components/orders/OrdersToday';
+import { FavoritePlaces } from '../components/places/FavoritePlaces';
+import { PlaceDistance } from '../components/places/PlaceDistance';
 import {
   Button,
   Card,
   Empty,
   Field,
+  IconAction,
+  InfoDisclosure,
+  ItemRow,
   Loading,
   Notice,
   Page,
+  SectionHeading,
   useAction,
   useTheme,
 } from '../components/ui';
-import { Ionicons } from '@expo/vector-icons';
-import { IconAction, SectionHeading, ItemRow, InfoDisclosure } from '../components/compact';
-import { LunchWheel } from '../components/LunchWheel';
-import { OSMAttribution } from '../components/OSMAttribution';
+import { Dialog } from '../components/ui/Dialog';
+import { formatDistance, hasCoordinates } from '../lib/distance';
+import { localDate } from '../lib/format';
+import { cookingToday, lunchOverview, restaurantLeaders, type LunchChoice } from '../lib/lunch';
+import { categoryName, filterReviewed, reviewedPlaces } from '../lib/reviews';
+import { supabase } from '../lib/supabase';
+import { useReducedMotion } from '../lib/useReducedMotion';
+import { useResource } from '../lib/useResource';
+import type { RootStackParams } from '../navigation';
+import { useFavorites } from '../providers/Favorites';
+import { useLocale } from '../providers/Locale';
+import { useOrganizations } from '../providers/Organizations';
+import { usePlaceFilters } from '../providers/PlaceFilters';
 const choices: {
   value: LunchChoice;
   label: string;
@@ -739,7 +742,7 @@ export function OverviewScreen() {
               )}
             </View>
           </Card>
-          <LunchDialog
+          <Dialog
             visible={suggestOpen}
             title={t('Suggest a restaurant for today')}
             busy={busy}
@@ -820,8 +823,8 @@ export function OverviewScreen() {
                 ))}
               </>
             )}
-          </LunchDialog>
-          <LunchDialog
+          </Dialog>
+          <Dialog
             visible={listOpen}
             title={t('Today’s restaurant shortlist')}
             busy={busy}
@@ -846,7 +849,7 @@ export function OverviewScreen() {
                   .toLocaleLowerCase()
                   .includes(voteSearch.trim().toLocaleLowerCase()),
             ) && <Text style={styles.subtitle}>{t('No restaurants match your search.')}</Text>}
-          </LunchDialog>
+          </Dialog>
           <InfoDisclosure title={t('How lunch planning works')}>
             <Text style={styles.subtitle}>
               {t('One answer per person. You can change it anytime today.')}

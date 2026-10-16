@@ -1,16 +1,15 @@
-import { PushActivity } from './src/components/PushActivity';
-import { AppUpdateNotice } from './src/components/AppUpdateNotice';
-import React from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { AuthProvider, useSession } from './src/providers/Auth';
-import { AuthScreen } from './src/screens/AuthScreen';
-import { OrganizationProvider } from './src/providers/Organizations';
 import { AppNavigation } from './src/AppNavigation';
-import { InviteProvider } from './src/providers/Invites';
-import { ThemeProvider, useTheme } from './src/providers/Theme';
+import { AppUpdateNotice } from './src/components/app/AppUpdateNotice';
+import { PushActivity } from './src/components/notifications/PushActivity';
+import { AuthProvider, useSession } from './src/providers/Auth';
 import { CreditsProvider } from './src/providers/Credits';
+import { InviteProvider } from './src/providers/Invites';
 import { LocaleProvider } from './src/providers/Locale';
+import { OrganizationProvider } from './src/providers/Organizations';
+import { ThemeProvider, useTheme } from './src/providers/Theme';
+import { AuthScreen } from './src/screens/AuthScreen';
 function SignedIn() {
   const session = useSession();
   return (

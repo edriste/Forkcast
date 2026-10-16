@@ -1,11 +1,11 @@
-import { publicConfig } from '../lib/config';
-import { useLocale } from '../providers/Locale';
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Linking, Text, View } from 'react-native';
-import { supabase } from '../lib/supabase';
 import { Button, Card, Field, Notice, Page, useAction, useTheme } from '../components/ui';
+import { publicConfig } from '../lib/config';
 import { signInWithGoogle } from '../lib/googleAuth';
-import { useInvites, persistInvite } from '../providers/Invites';
+import { supabase } from '../lib/supabase';
+import { persistInvite, useInvites } from '../providers/Invites';
+import { useLocale } from '../providers/Locale';
 
 export function AuthScreen() {
   const { t } = useLocale();

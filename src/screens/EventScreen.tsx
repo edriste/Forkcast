@@ -1,20 +1,12 @@
-import { CookingComments } from '../components/CookingComments';
-import { CookingParticipants } from '../components/CookingParticipants';
-import { MealFlagsEditor } from '../components/MealFlags';
-import { SignupDeadlineEditor } from '../components/SignupDeadline';
-import { signupClosed } from '../lib/signupDeadline';
-import { useSignupClock } from '../lib/useSignupClock';
-import { useNotifications } from '../providers/Notifications';
-import { useLocale } from '../providers/Locale';
-import React, { useCallback, useEffect, useState } from 'react';
-import { Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { RootStackParams } from '../navigation';
-import { useOrganizations } from '../providers/Organizations';
-import { useSession } from '../providers/Auth';
-import { eventDetail, localDate } from '../lib/cooking';
-import { supabase } from '../lib/supabase';
-import { useResource } from '../lib/useResource';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Text } from 'react-native';
+import { CookingComments } from '../components/cooking/CookingComments';
+import { CookingParticipants } from '../components/cooking/CookingParticipants';
+import { EventImages } from '../components/cooking/EventImages';
+import { EventPayment } from '../components/cooking/EventPayment';
+import { MealFlagsEditor } from '../components/cooking/MealFlags';
+import { SignupDeadlineEditor } from '../components/cooking/SignupDeadline';
 import {
   Button,
   Card,
@@ -23,12 +15,20 @@ import {
   Loading,
   Notice,
   Page,
+  SectionHeading,
   useAction,
   useTheme,
 } from '../components/ui';
-import { SectionHeading } from '../components/compact';
-import { EventImages } from '../components/EventImages';
-import { EventPayment } from '../components/EventPayment';
+import { eventDetail, localDate } from '../lib/cooking';
+import { signupClosed } from '../lib/signupDeadline';
+import { supabase } from '../lib/supabase';
+import { useResource } from '../lib/useResource';
+import { useSignupClock } from '../lib/useSignupClock';
+import type { RootStackParams } from '../navigation';
+import { useSession } from '../providers/Auth';
+import { useLocale } from '../providers/Locale';
+import { useNotifications } from '../providers/Notifications';
+import { useOrganizations } from '../providers/Organizations';
 export function EventScreen({ route }: NativeStackScreenProps<RootStackParams, 'Event'>) {
   const { t, money, displayDate } = useLocale();
 

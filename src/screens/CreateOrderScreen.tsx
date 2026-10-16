@@ -1,19 +1,18 @@
-import { compactLocationLabel } from '../../supabase/functions/_shared/location';
-import React, { useCallback, useState } from 'react';
-import { Pressable, Text } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useCallback, useState } from 'react';
+import { Pressable, Text } from 'react-native';
+import { compactLocationLabel } from '../../supabase/functions/_shared/location';
+import { Button, Card, Field, Notice, Page, useAction, useTheme } from '../components/ui';
+import { Dialog } from '../components/ui/Dialog';
+import { menuUrl } from '../lib/orders';
+import { paypalHandle } from '../lib/payments';
+import { deadlineFields, parseBerlinDeadline } from '../lib/signupDeadline';
+import { supabase } from '../lib/supabase';
+import { useResource } from '../lib/useResource';
 import type { RootStackParams } from '../navigation';
 import { useSession } from '../providers/Auth';
-import { useResource } from '../lib/useResource';
-import { LunchDialog } from '../components/LunchDialog';
-import { useOrganizations } from '../providers/Organizations';
 import { useLocale } from '../providers/Locale';
-import { localDate } from '../lib/format';
-import { deadlineFields, parseBerlinDeadline } from '../lib/signupDeadline';
-import { paypalHandle } from '../lib/payments';
-import { menuUrl } from '../lib/orders';
-import { supabase } from '../lib/supabase';
-import { Button, Card, Field, Notice, Page, useAction, useTheme } from '../components/ui';
+import { useOrganizations } from '../providers/Organizations';
 export function CreateOrderScreen({
   navigation,
 }: NativeStackScreenProps<RootStackParams, 'CreateOrder'>) {
@@ -150,7 +149,7 @@ export function CreateOrderScreen({
           }
         />
       </Card>
-      <LunchDialog
+      <Dialog
         visible={peopleOpen}
         title={t('Who places the order?')}
         closeLabel={t('Close order dialog')}
@@ -186,7 +185,7 @@ export function CreateOrderScreen({
               </Text>
             </Pressable>
           ))}
-      </LunchDialog>
+      </Dialog>
     </Page>
   );
 }

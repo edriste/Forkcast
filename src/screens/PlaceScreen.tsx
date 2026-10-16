@@ -1,19 +1,11 @@
-import { PlaceDistance } from '../components/PlaceDistance';
-import { useLocale } from '../providers/Locale';
-import { useFavorites } from '../providers/Favorites';
-import { FavoriteButton } from '../components/FavoriteButton';
-import { SectionHeading } from '../components/compact';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Linking, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { RootStackParams } from '../navigation';
-import { details } from '../lib/places';
-import { supabase } from '../lib/supabase';
-import { ownReview, placeReviews } from '../lib/reviews';
-import type { Aggregate, Review } from '../lib/types';
-import { useSession } from '../providers/Auth';
-import { useOrganizations } from '../providers/Organizations';
-import { useResource } from '../lib/useResource';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Linking, Text, View } from 'react-native';
+import { OSMAttribution } from '../components/maps/OSMAttribution';
+import { FavoriteButton } from '../components/places/FavoriteButton';
+import { PlaceCuisineEditor } from '../components/places/PlaceCuisineEditor';
+import { PlaceDistance } from '../components/places/PlaceDistance';
+import { RatingSummary } from '../components/places/RatingSummary';
 import {
   Button,
   Card,
@@ -23,12 +15,20 @@ import {
   Loading,
   Notice,
   Page,
+  SectionHeading,
   useAction,
   useTheme,
 } from '../components/ui';
-import { OSMAttribution } from '../components/OSMAttribution';
-import { RatingSummary } from '../components/RatingSummary';
-import { PlaceCuisineEditor } from '../components/PlaceCuisineEditor';
+import { details } from '../lib/places';
+import { ownReview, placeReviews } from '../lib/reviews';
+import { supabase } from '../lib/supabase';
+import type { Aggregate, Review } from '../lib/types';
+import { useResource } from '../lib/useResource';
+import type { RootStackParams } from '../navigation';
+import { useSession } from '../providers/Auth';
+import { useFavorites } from '../providers/Favorites';
+import { useLocale } from '../providers/Locale';
+import { useOrganizations } from '../providers/Organizations';
 
 export function PlaceScreen({
   route,

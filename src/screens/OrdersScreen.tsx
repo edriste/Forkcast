@@ -1,15 +1,14 @@
-import React, { useCallback, useRef, useState } from 'react';
-import { Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { RootStackParams } from '../navigation';
-import { useOrganizations } from '../providers/Organizations';
-import { useLocale } from '../providers/Locale';
+import { useCallback, useRef, useState } from 'react';
+import { Text, View } from 'react-native';
+import { Button, Chip, Empty, ItemRow, Notice, Page, useTheme } from '../components/ui';
 import { localDate } from '../lib/format';
 import { officeOrders, orderStatusLabel } from '../lib/orders';
 import { useResource } from '../lib/useResource';
 import { useSignupClock } from '../lib/useSignupClock';
-import { Button, Chip, Empty, Notice, Page, useTheme } from '../components/ui';
-import { ItemRow } from '../components/compact';
+import type { RootStackParams } from '../navigation';
+import { useLocale } from '../providers/Locale';
+import { useOrganizations } from '../providers/Organizations';
 export function OrdersScreen({ navigation }: NativeStackScreenProps<RootStackParams, 'Orders'>) {
   const org = useOrganizations().current!.id;
   const { t, displayDate } = useLocale();

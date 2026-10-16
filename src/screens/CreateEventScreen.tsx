@@ -1,17 +1,17 @@
-import { MealFlagPicker } from '../components/MealFlags';
-import { SignupDeadlineFields, type DeadlineDraft } from '../components/SignupDeadline';
-import { parseBerlinDeadline } from '../lib/signupDeadline';
-import type { MealFlag } from '../lib/mealFlags';
-import { useLocale } from '../providers/Locale';
-import React, { useEffect, useState } from 'react';
-import { Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { RootStackParams } from '../navigation';
-import { useOrganizations } from '../providers/Organizations';
-import { localDate } from '../lib/cooking';
-import { supabase } from '../lib/supabase';
-import { parsePrice, paypalHandle } from '../lib/payments';
+import { useEffect, useState } from 'react';
+import { Text, View } from 'react-native';
+import { MealFlagPicker } from '../components/cooking/MealFlags';
+import { SignupDeadlineFields, type DeadlineDraft } from '../components/cooking/SignupDeadline';
 import { Button, Card, Chip, Field, Notice, Page, useAction, useTheme } from '../components/ui';
+import { localDate } from '../lib/cooking';
+import type { MealFlag } from '../lib/mealFlags';
+import { parsePrice, paypalHandle } from '../lib/payments';
+import { parseBerlinDeadline } from '../lib/signupDeadline';
+import { supabase } from '../lib/supabase';
+import type { RootStackParams } from '../navigation';
+import { useLocale } from '../providers/Locale';
+import { useOrganizations } from '../providers/Organizations';
 export function CreateEventScreen({
   navigation,
 }: NativeStackScreenProps<RootStackParams, 'CreateEvent'>) {

@@ -1,37 +1,37 @@
-import { usePushNavigation } from './components/PushNavigation';
-import { PlaceFiltersProvider } from './providers/PlaceFilters';
-import { FavoritesProvider } from './providers/Favorites';
-import { useSession } from './providers/Auth';
-import { useLocale } from './providers/Locale';
-import React, { useRef, useState } from 'react';
-import { LiveUpdatesProvider } from './providers/LiveUpdates';
-import { NotificationsProvider } from './providers/Notifications';
-import { NotificationBell } from './components/NotificationBell';
-import { OrganizationSwitcher } from './components/OrganizationSwitcher';
-import { Pressable, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import {
-  NavigationContainer,
-  DefaultTheme,
   DarkTheme,
+  DefaultTheme,
+  NavigationContainer,
   useNavigationContainerRef,
 } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Ionicons } from '@expo/vector-icons';
+import { useRef, useState } from 'react';
+import { Pressable, View } from 'react-native';
+import { NotificationBell } from './components/notifications/NotificationBell';
+import { usePushNavigation } from './components/notifications/usePushNavigation';
+import { OrganizationSwitcher } from './components/organizations/OrganizationSwitcher';
 import { Loading, useTheme } from './components/ui';
+import type { MainTabParams, RootStackParams } from './navigation';
+import { useSession } from './providers/Auth';
+import { FavoritesProvider } from './providers/Favorites';
+import { LiveUpdatesProvider } from './providers/LiveUpdates';
+import { useLocale } from './providers/Locale';
+import { NotificationsProvider } from './providers/Notifications';
 import { useOrganizations } from './providers/Organizations';
-import { OrganizationScreen } from './screens/OrganizationScreen';
-import { SearchScreen } from './screens/SearchScreen';
-import { PlaceScreen } from './screens/PlaceScreen';
-import { PlacesScreen } from './screens/PlacesScreen';
-import { OverviewScreen } from './screens/OverviewScreen';
+import { PlaceFiltersProvider } from './providers/PlaceFilters';
 import { CookingScreen } from './screens/CookingScreen';
 import { CreateEventScreen } from './screens/CreateEventScreen';
 import { CreateOrderScreen } from './screens/CreateOrderScreen';
-import { OrdersScreen } from './screens/OrdersScreen';
-import { OrderScreen } from './screens/OrderScreen';
 import { EventScreen } from './screens/EventScreen';
-import type { RootStackParams, MainTabParams } from './navigation';
+import { OrderScreen } from './screens/OrderScreen';
+import { OrdersScreen } from './screens/OrdersScreen';
+import { OrganizationScreen } from './screens/OrganizationScreen';
+import { OverviewScreen } from './screens/OverviewScreen';
+import { PlaceScreen } from './screens/PlaceScreen';
+import { PlacesScreen } from './screens/PlacesScreen';
+import { SearchScreen } from './screens/SearchScreen';
 const Stack = createNativeStackNavigator<RootStackParams>();
 const Tabs = createBottomTabNavigator<MainTabParams>();
 function MainTabs({ initialTab }: { initialTab: keyof MainTabParams }) {

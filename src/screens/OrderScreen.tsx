@@ -1,17 +1,22 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Linking, Pressable, Text, View } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { RootStackParams } from '../navigation';
-import { useOrganizations } from '../providers/Organizations';
-import { useNotifications } from '../providers/Notifications';
-import { useSession } from '../providers/Auth';
-import { useLocale } from '../providers/Locale';
-import { supabase } from '../lib/supabase';
-import { useResource } from '../lib/useResource';
-import { useSignupClock } from '../lib/useSignupClock';
-import { deadlineFields, displayDeadline, parseBerlinDeadline } from '../lib/signupDeadline';
-import { parsePrice } from '../lib/payments';
+import * as Clipboard from 'expo-clipboard';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Linking, Pressable, Text, View } from 'react-native';
+import {
+  Button,
+  Card,
+  Chip,
+  Field,
+  IconAction,
+  InfoDisclosure,
+  Loading,
+  Notice,
+  Page,
+  SectionHeading,
+  useAction,
+  useTheme,
+} from '../components/ui';
+import { Dialog } from '../components/ui/Dialog';
 import {
   emptyItem,
   groupOrderItems,
@@ -23,19 +28,16 @@ import {
   type ItemDraft,
   type OrderStatus,
 } from '../lib/orders';
-import {
-  Button,
-  Card,
-  Chip,
-  Field,
-  Loading,
-  Notice,
-  Page,
-  useAction,
-  useTheme,
-} from '../components/ui';
-import { IconAction, InfoDisclosure, SectionHeading } from '../components/compact';
-import { LunchDialog } from '../components/LunchDialog';
+import { parsePrice } from '../lib/payments';
+import { deadlineFields, displayDeadline, parseBerlinDeadline } from '../lib/signupDeadline';
+import { supabase } from '../lib/supabase';
+import { useResource } from '../lib/useResource';
+import { useSignupClock } from '../lib/useSignupClock';
+import type { RootStackParams } from '../navigation';
+import { useSession } from '../providers/Auth';
+import { useLocale } from '../providers/Locale';
+import { useNotifications } from '../providers/Notifications';
+import { useOrganizations } from '../providers/Organizations';
 export function OrderScreen({ route }: NativeStackScreenProps<RootStackParams, 'Order'>) {
   const org = useOrganizations().current!.id;
   const user = useSession().user.id;
@@ -638,7 +640,7 @@ export function OrderScreen({ route }: NativeStackScreenProps<RootStackParams, '
           )}
         </Card>
       )}
-      <LunchDialog
+      <Dialog
         visible={confirmation !== null}
         title={t(
           confirmation === 'place'
@@ -719,7 +721,7 @@ export function OrderScreen({ route }: NativeStackScreenProps<RootStackParams, '
           disabled={action.busy}
           onPress={() => setConfirmation(null)}
         />
-      </LunchDialog>
+      </Dialog>
     </Page>
   );
 }

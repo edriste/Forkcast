@@ -1,17 +1,17 @@
-import { useAutomaticRefresh } from '../providers/LiveUpdates';
-import { useIsFocused, useFocusEffect } from '@react-navigation/native';
-import { PlaceDistance } from '../components/PlaceDistance';
-import { useLocale } from '../providers/Locale';
-import React, { useState, useRef, useCallback } from 'react';
-import { Text } from 'react-native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useOrganizations } from '../providers/Organizations';
-import { supabase } from '../lib/supabase';
-import { placesRequest } from '../lib/places';
-import type { Place } from '../lib/types';
+import { useCallback, useRef, useState } from 'react';
+import { Text } from 'react-native';
+import { OSMAttribution } from '../components/maps/OSMAttribution';
+import { PlaceDistance } from '../components/places/PlaceDistance';
 import { Button, Card, Empty, Field, Notice, Page, useAction, useTheme } from '../components/ui';
-import { OSMAttribution } from '../components/OSMAttribution';
+import { placesRequest } from '../lib/places';
+import { supabase } from '../lib/supabase';
+import type { Place } from '../lib/types';
 import type { RootStackParams } from '../navigation';
+import { useAutomaticRefresh } from '../providers/LiveUpdates';
+import { useLocale } from '../providers/Locale';
+import { useOrganizations } from '../providers/Organizations';
 export function SearchScreen({
   navigation,
   route,
