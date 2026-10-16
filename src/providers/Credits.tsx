@@ -160,6 +160,15 @@ export function CreditsProvider({ children }: React.PropsWithChildren) {
                   )}
                 </Text>
                 {link('© openrouteservice.org by HeiGIT', 'https://openrouteservice.org/')}
+                <Text style={styles.text}>
+                  {t(
+                    'Address search can also use openrouteservice’s Pelias geocoder. Its data sources and credits are listed below.',
+                  )}
+                </Text>
+                {link(
+                  t('Geocoding data sources'),
+                  'https://openrouteservice.org/terms-of-service/#attribution-geocode',
+                )}
               </Card>
               <Card>
                 <Text style={styles.heading}>{t('Cuisine presets')}</Text>

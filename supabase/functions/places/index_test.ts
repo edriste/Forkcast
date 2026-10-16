@@ -28,6 +28,8 @@ type Options = {
   locationCache?: boolean;
   emptyLocations?: boolean;
   locationStatus?: number;
+  geocoder?: 'openrouteservice';
+  noGeocodingKey?: boolean;
   cuisines?: boolean;
   detailsStale?: boolean;
   reviewed?: boolean;
@@ -39,7 +41,14 @@ type Options = {
 };
 async function scenario(body: object, options: Options = {}) {
   const original = globalThis.fetch;
-  const calls: { url: string; method: string; body?: string }[] = [];
+  const oldProvider = Deno.env.get('OSM_GEOCODING_PROVIDER');
+  const oldKey = Deno.env.get('OPENROUTESERVICE_API_KEY');
+  Deno.env.set('OSM_GEOCODING_PROVIDER', options.geocoder || 'nominatim');
+  if (options.geocoder) {
+    if (options.noGeocodingKey) Deno.env.delete('OPENROUTESERVICE_API_KEY');
+    else Deno.env.set('OPENROUTESERVICE_API_KEY', 'geocoder-test-key');
+  }
+  const calls: { url: string; method: string; body?: string; authorization?: string }[] = [];
   const response = (data: unknown, status = 200) =>
     new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
   globalThis.fetch = async (input, init) => {
@@ -49,6 +58,7 @@ async function scenario(body: object, options: Options = {}) {
       url,
       method: init?.method ?? 'GET',
       body: typeof init?.body === 'string' ? init.body : undefined,
+      authorization: new Headers(init?.headers).get('Authorization') ?? undefined,
     });
     if (path === '/auth/v1/user') return response({ id: 'user-one', aud: 'authenticated' });
     if (path === '/rest/v1/organizations')
@@ -62,6 +72,28 @@ async function scenario(body: object, options: Options = {}) {
     if (path === '/rest/v1/walking_distance_cache')
       return response(init?.method === 'POST' ? null : []);
     if (path === '/rest/v1/rpc/claim_walking_request') return response(true);
+    if (url.startsWith('https://api.heigit.org/openrouteservice/geocode/search')) {
+      if (options.locationStatus)
+        return response({ error: 'Private upstream response' }, options.locationStatus);
+      return response({
+        features: options.emptyLocations
+          ? []
+          : [
+              {
+                geometry: { type: 'Point', coordinates: [6.939, 50.936] },
+                properties: {
+                  label: 'Rudolfplatz 14, Köln, Germany',
+                  street: 'Rudolfplatz',
+                  housenumber: '14',
+                  locality: 'Köln',
+                  postalcode: '50674',
+                  country: 'Germany',
+                  country_a: 'DEU',
+                },
+              },
+            ],
+      });
+    }
     if (url === 'https://api.heigit.org/openrouteservice/v2/matrix/foot-walking')
       return response({ distances: [[1250]], durations: [[1000]] });
     if (path === '/rest/v1/osm_location_cache') {
@@ -170,6 +202,10 @@ async function scenario(body: object, options: Options = {}) {
     return { status: result.status, data: await result.json(), calls };
   } finally {
     globalThis.fetch = original;
+    if (oldProvider === undefined) Deno.env.delete('OSM_GEOCODING_PROVIDER');
+    else Deno.env.set('OSM_GEOCODING_PROVIDER', oldProvider);
+    if (oldKey === undefined) Deno.env.delete('OPENROUTESERVICE_API_KEY');
+    else Deno.env.set('OPENROUTESERVICE_API_KEY', oldKey);
   }
 }
 Deno.test('unauthenticated requests never reach upstream services', async () => {
@@ -280,6 +316,92 @@ Deno.test('office lookup enforces the shared Nominatim gate and validates querie
   assertEquals(empty.status, 200);
   assertEquals(empty.data.locations, []);
 });
+Deno.test(
+  'openrouteservice office search uses a server-only key, its own cache and the shared request gate',
+  async () => {
+    const result = await scenario(
+      { action: 'locations', query: 'Rudolfplatz 14 Köln' },
+      { geocoder: 'openrouteservice' },
+    );
+    assertEquals(result.status, 200);
+    assertEquals(result.data.locations, [
+      { label: 'Rudolfplatz 14, 50674 Köln, Germany', latitude: 50.936, longitude: 6.939 },
+    ]);
+    const request = result.calls.find((call) =>
+      call.url.startsWith('https://api.heigit.org/openrouteservice/geocode/search'),
+    )!;
+    assertEquals(request.authorization, 'geocoder-test-key');
+    const url = new URL(request.url);
+    assertEquals(url.searchParams.get('text'), 'Rudolfplatz 14 Köln');
+    assertEquals(url.searchParams.get('size'), '5');
+    assert(!request.url.includes('geocoder-test-key'));
+    assert(!result.calls.some((call) => call.url.includes('nominatim.openstreetmap.org')));
+    const cache = result.calls.find(
+      (call) => call.url.includes('/osm_location_cache') && call.method === 'POST',
+    )!;
+    assertEquals(JSON.parse(cache.body!).query, 'openrouteservice:rudolfplatz 14 köln');
+    const blocked = await scenario(
+      { action: 'locations', query: 'Office' },
+      { geocoder: 'openrouteservice', gate: false },
+    );
+    assertEquals(blocked.status, 429);
+    assert(blocked.calls.every((call) => call.url.startsWith('https://supabase.test')));
+    const cached = await scenario(
+      { action: 'locations', query: 'Office' },
+      { geocoder: 'openrouteservice', locationCache: true },
+    );
+    assertEquals(cached.status, 200);
+    assert(cached.calls.every((call) => call.url.startsWith('https://supabase.test')));
+  },
+);
+Deno.test(
+  'openrouteservice geocoding supports legacy areas and reports missing keys or rejected access without retrying Nominatim',
+  async () => {
+    const legacy = await scenario(
+      { action: 'search', query: 'Miso' },
+      { geocoder: 'openrouteservice' },
+    );
+    assertEquals(legacy.status, 200);
+    const lookup = legacy.calls.find((call) => call.url.includes('/geocode/search'))!;
+    assertEquals(new URL(lookup.url).searchParams.get('size'), '1');
+    assert(
+      new URLSearchParams(
+        legacy.calls.find((call) => call.url.startsWith('https://overpass-api.de'))!.body,
+      )
+        .get('data')!
+        .includes('50.936,6.939'),
+    );
+    const missing = await scenario(
+      { action: 'locations', query: 'Office' },
+      { geocoder: 'openrouteservice', noGeocodingKey: true },
+    );
+    assertEquals(missing.status, 502);
+    assert(missing.data.error.includes('needs an openrouteservice API key'));
+    for (const status of [403, 429, 503]) {
+      const failure = await scenario(
+        { action: 'locations', query: 'Office' },
+        { geocoder: 'openrouteservice', locationStatus: status },
+      );
+      assertEquals(failure.status, 502);
+      assert(
+        failure.data.error.includes(
+          status === 403
+            ? 'denied by openrouteservice'
+            : status === 429
+              ? 'rate limited by openrouteservice'
+              : 'temporarily unavailable',
+        ),
+      );
+      assert(!failure.calls.some((call) => call.url.includes('nominatim.openstreetmap.org')));
+      assert(
+        !failure.calls.some(
+          (call) => call.url.includes('/osm_location_cache') && call.method === 'POST',
+        ),
+      );
+      assert(!JSON.stringify(failure.data).includes('geocoder-test-key'));
+    }
+  },
+);
 Deno.test(
   'office lookup distinguishes provider denial, rate limits and outages without leaking addresses',
   async () => {

@@ -145,6 +145,8 @@ Enable email/password signups, confirmations and a minimum password length of 8.
 
 Optional server secrets: `OSM_USER_AGENT` (an application identifier with an operator contact URL/email), `OSM_NOMINATIM_URL`, `OSM_OVERPASS_URL`. The defaults work without API keys. Supply a contact identifier for a public deployment and respect provider policies. `EXPO_PUBLIC_OSM_MAP_STYLE_URL` can replace the default OpenFreeMap Positron style with another compatible style/provider.
 
+If public Nominatim rejects requests from your host, set `OSM_GEOCODING_PROVIDER=openrouteservice` and supply a geocoding-enabled `OPENROUTESERVICE_API_KEY`. This explicitly selects ORS/Pelias for office/address search, using the same server-only key as walking routes. See the [address provider setup](docs/cloudflare.md) for switching, quotas and deployment steps. Restaurant discovery remains on Overpass.
+
 Create your own terms/privacy pages and set `EXPO_PUBLIC_TERMS_URL` and `EXPO_PUBLIC_PRIVACY_URL` to their HTTPS URLs.
 
 ## How OSM search works

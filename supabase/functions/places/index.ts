@@ -1,6 +1,6 @@
 import { addWalkingDistances } from '../_shared/walking.ts';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
-import { normalizeLocations } from '../_shared/location.ts';
+import { geocode, geocodingProvider } from '../_shared/geocoding.ts';
 import { applyCuisineOverride, type CuisineOverride } from '../_shared/cuisines.ts';
 import {
   CACHE_DAYS,
@@ -63,6 +63,17 @@ async function upstream(url: string, options: RequestInit = {}) {
       host: new URL(url).hostname,
       status: response.status,
     });
+    if (new URL(url).hostname === 'api.heigit.org') {
+      if (response.status === 401 || response.status === 403)
+        throw new Error(
+          'Location search was denied by openrouteservice. Ask your administrator to check the API key and geocoding access.',
+        );
+      if (response.status === 429)
+        throw new Error(
+          'Location search is rate limited by openrouteservice. Please try again later.',
+        );
+      throw new Error('Location search is temporarily unavailable. Please try again later.');
+    }
     if (response.status === 401 || response.status === 403)
       throw new Error(
         'OpenStreetMap lookup was denied. Ask your administrator to check the location provider settings.',
@@ -112,20 +123,13 @@ async function getRegion(
     ) {
       const gate = await admin.rpc('claim_osm_request', { service_name: 'nominatim' });
       if (gate.error || !gate.data) throw new Error('Area lookup is busy. Please try again later.');
-      const url = new URL(
-        Deno.env.get('OSM_NOMINATIM_URL') ?? 'https://nominatim.openstreetmap.org/search',
-      );
-      url.searchParams.set('q', org.search_area);
-      url.searchParams.set('format', 'jsonv2');
-      url.searchParams.set('addressdetails', '1');
-      url.searchParams.set('limit', '1');
-      const matches = await upstream(url.toString());
-      if (!Array.isArray(matches) || !matches.length)
+      const matches = await geocode(org.search_area, 1, upstream);
+      if (!matches.length)
         throw new Error(
           'The search area could not be found. Use a specific neighborhood, city and country when creating the group.',
         );
-      latitude = Number(matches[0].lat);
-      longitude = Number(matches[0].lon);
+      latitude = matches[0].latitude;
+      longitude = matches[0].longitude;
       if (
         !Number.isFinite(latitude) ||
         !Number.isFinite(longitude) ||
@@ -292,6 +296,9 @@ export async function handleRequest(request: Request) {
       if (typeof body.query !== 'string' || body.query.trim().length < 3 || body.query.length > 160)
         return reply({ error: 'Enter an address between 3 and 160 characters.' }, 400);
       const query = body.query.trim().replace(/\s+/g, ' ');
+      const provider = geocodingProvider();
+      const cacheQuery =
+        provider === 'nominatim' ? query.toLowerCase() : `${provider}:${query.toLowerCase()}`;
       const admin = createClient(
         Deno.env.get('SUPABASE_URL')!,
         Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
@@ -302,7 +309,7 @@ export async function handleRequest(request: Request) {
       const cached = await admin
         .from('osm_location_cache')
         .select('locations,refreshed_at')
-        .eq('query', query.toLowerCase())
+        .eq('query', cacheQuery)
         .maybeSingle();
       if (cached.error) throw cached.error;
       if (cached.data && Date.parse(cached.data.refreshed_at) > Date.now() - CACHE_DAYS * 86400000)
@@ -311,17 +318,10 @@ export async function handleRequest(request: Request) {
       if (gate.error) throw gate.error;
       if (!gate.data)
         return reply({ error: 'Location lookup is busy. Please try again shortly.' }, 429);
-      const url = new URL(
-        Deno.env.get('OSM_NOMINATIM_URL') ?? 'https://nominatim.openstreetmap.org/search',
-      );
-      url.searchParams.set('q', query);
-      url.searchParams.set('format', 'jsonv2');
-      url.searchParams.set('addressdetails', '1');
-      url.searchParams.set('limit', '5');
-      const locations = normalizeLocations(await upstream(url.toString()));
+      const locations = await geocode(query, 5, upstream);
       const saved = await admin
         .from('osm_location_cache')
-        .upsert({ query: query.toLowerCase(), locations, refreshed_at: new Date().toISOString() });
+        .upsert({ query: cacheQuery, locations, refreshed_at: new Date().toISOString() });
       if (saved.error) throw saved.error;
       return reply({ locations });
     }

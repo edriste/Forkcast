@@ -3,8 +3,58 @@ import {
   normalizeLocations,
   compactLocationLabel,
   officeAddressDisplay,
+  normalizePeliasLocations,
 } from '../supabase/functions/_shared/location';
 import { mapBounds } from '../supabase/functions/_shared/osm';
+test('Pelias locations validate GeoJSON points and retain compact addresses', () => {
+  const feature = {
+    geometry: { type: 'Point', coordinates: [6.939, 50.936] },
+    properties: {
+      street: 'Rudolfplatz',
+      housenumber: '14',
+      locality: 'Köln',
+      postalcode: '50674',
+      country: 'Germany',
+      country_a: 'DEU',
+    },
+  };
+  expect(
+    normalizePeliasLocations({
+      features: [
+        feature,
+        null,
+        { ...feature, geometry: { type: 'LineString', coordinates: [6.939, 50.936] } },
+        { ...feature, geometry: { type: 'Point', coordinates: [null, 50] } },
+        { ...feature, geometry: { type: 'Point', coordinates: [7, 91] } },
+      ],
+    }),
+  ).toEqual([{ label: 'Rudolfplatz 14, 50674 Köln, Germany', latitude: 50.936, longitude: 6.939 }]);
+  expect(
+    normalizePeliasLocations({
+      features: [
+        { geometry: { type: 'Point', coordinates: [0, 0] }, properties: { label: 'A place' } },
+      ],
+    })[0],
+  ).toEqual({ label: 'A place', latitude: 0, longitude: 0 });
+  expect(
+    normalizePeliasLocations({
+      features: [
+        {
+          ...feature,
+          properties: {
+            street: 'Downing Street',
+            housenumber: '10',
+            locality: 'London',
+            country: 'United Kingdom',
+            country_a: 'GBR',
+          },
+        },
+      ],
+    })[0].label,
+  ).toBe('10 Downing Street, London, United Kingdom');
+  expect(() => normalizePeliasLocations({ error: 'invalid' })).toThrow();
+  expect(normalizePeliasLocations({ features: [] })).toEqual([]);
+});
 test('location results reject invalid coordinates and labels', () => {
   expect(
     normalizeLocations([

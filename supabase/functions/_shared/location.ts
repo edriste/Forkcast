@@ -91,3 +91,49 @@ export function normalizeLocations(input: unknown): OfficeLocation[] {
     })
     .slice(0, 5);
 }
+
+/** Pelias uses GeoJSON points in longitude/latitude order. */
+export function normalizePeliasLocations(input: unknown): OfficeLocation[] {
+  const features = (input as { features?: unknown } | null)?.features;
+  if (!Array.isArray(features)) throw new Error('Location lookup returned an invalid response.');
+  const countryCodes: Record<string, string> = {
+    USA: 'us',
+    GBR: 'gb',
+    AUS: 'au',
+    CAN: 'ca',
+    NZL: 'nz',
+    IRL: 'ie',
+    FRA: 'fr',
+  };
+  return normalizeLocations(
+    features.flatMap((feature) => {
+      const coordinates = feature?.geometry?.coordinates;
+      const properties = feature?.properties;
+      if (
+        feature?.geometry?.type !== 'Point' ||
+        !Array.isArray(coordinates) ||
+        typeof coordinates[0] !== 'number' ||
+        typeof coordinates[1] !== 'number' ||
+        !properties ||
+        typeof properties !== 'object'
+      )
+        return [];
+      const country = typeof properties.country_a === 'string' ? properties.country_a : '';
+      return [
+        {
+          lat: coordinates[1],
+          lon: coordinates[0],
+          display_name: properties.label,
+          address: {
+            road: properties.street,
+            house_number: properties.housenumber,
+            city: properties.locality || properties.localadmin,
+            postcode: properties.postalcode,
+            country: properties.country,
+            country_code: countryCodes[country.toUpperCase()] || country.toLowerCase(),
+          },
+        },
+      ];
+    }),
+  );
+}

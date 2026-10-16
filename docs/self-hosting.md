@@ -138,13 +138,13 @@ Enable `GOOGLE_ENABLED=true`, fill `GOOGLE_CLIENT_ID`/`GOOGLE_SECRET` in the bac
 
 Self-hosting the app/backend does not automatically self-host these providers:
 
-| Capability                            | Default                                    | Operator-managed option                                                                                                                   |
-| ------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Restaurant/address lookup             | Public Overpass and Nominatim              | Set `OSM_OVERPASS_URL` and `OSM_NOMINATIM_URL` on `functions`                                                                             |
-| Map styles, tiles, glyphs and sprites | OpenFreeMap                                | Set the frontend's light/dark style URLs to your map service; ensure the style's referenced assets are also reachable                     |
-| Walking distances/durations           | HeiGIT/openrouteservice, with a server key | Set `OPENROUTESERVICE_MATRIX_URL` to your own complete foot-walking matrix endpoint; a private keyless ORS instance needs no provider key |
-| Sign-in                               | Your Auth + SMTP server                    | Optional Google OAuth remains external                                                                                                    |
-| Payment links                         | PayPal.me                                  | No payment processor is hosted by Forkcast; payments/confirmations remain manually tracked                                                |
+| Capability                            | Default                                    | Operator-managed option                                                                                                                             |
+| ------------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Restaurant/address lookup             | Public Overpass and Nominatim              | Set `OSM_OVERPASS_URL` and `OSM_NOMINATIM_URL`, or select `OSM_GEOCODING_PROVIDER=openrouteservice` with a geocoding-enabled ORS key on `functions` |
+| Map styles, tiles, glyphs and sprites | OpenFreeMap                                | Set the frontend's light/dark style URLs to your map service; ensure the style's referenced assets are also reachable                               |
+| Walking distances/durations           | HeiGIT/openrouteservice, with a server key | Set `OPENROUTESERVICE_MATRIX_URL` to your own complete foot-walking matrix endpoint; a private keyless ORS instance needs no provider key           |
+| Sign-in                               | Your Auth + SMTP server                    | Optional Google OAuth remains external                                                                                                              |
+| Payment links                         | PayPal.me                                  | No payment processor is hosted by Forkcast; payments/confirmations remain manually tracked                                                          |
 
 For hosted walking routes, add `OPENROUTESERVICE_API_KEY` to the backend `.env` and recreate `functions`. For your own ORS server, set the complete `OPENROUTESERVICE_MATRIX_URL` (including its foot-walking profile path) on the server. It is not accepted from app requests. Existing cache and conservative rate controls apply to both deployments. When changing routing providers, clear `public.walking_distance_cache` deliberately so old results are recalculated. Missing/unavailable routes retain the documented labelled fallback. No routing credentials belong in frontend configuration.
 
