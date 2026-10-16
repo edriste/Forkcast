@@ -290,7 +290,7 @@ export function PlaceFilters({
               <Text style={styles.subtitle}>
                 {t(
                   distanceAvailable
-                    ? 'Straight-line distances from your office; walking routes may be longer.'
+                    ? 'Walking distances from your office when available; straight-line estimates are labelled separately.'
                     : 'Set an office location to calculate distances.',
                 )}
               </Text>

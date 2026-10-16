@@ -1,3 +1,4 @@
+import { addWalkingDistances } from '../_shared/walking.ts';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { normalizeLocations } from '../_shared/location.ts';
 import { applyCuisineOverride, type CuisineOverride } from '../_shared/cuisines.ts';
@@ -327,12 +328,17 @@ export async function handleRequest(request: Request) {
       );
       const { region, warning } = await getRegion(client, admin, org);
       const overrides = await loadCuisineOverrides(client, org.id);
-      return reply({
-        places: searchPlaces(
+      const walking = await addWalkingDistances(
+        admin,
+        org,
+        searchPlaces(
           region.places.map((place) => applyCuisineOverride(place, overrides.get(place.id))),
           body.query,
         ),
-        warning,
+      );
+      return reply({
+        places: walking.places,
+        warning: [warning, walking.warning].filter(Boolean).join('\n'),
         refreshedAt: region.refreshed_at,
         radiusMeters: OSM_RADIUS_METERS,
       });
@@ -418,7 +424,12 @@ export async function handleRequest(request: Request) {
         if (place) places.push(applyCuisineOverride(place, overrides.get(id)));
         else failed.push(id);
       }
-      return reply({ places, failed, warning });
+      const walking = await addWalkingDistances(admin, org, places);
+      return reply({
+        places: walking.places,
+        failed,
+        warning: [warning, walking.warning].filter(Boolean).join('\n'),
+      });
     }
     return reply({ error: 'Unknown action' }, 400);
   } catch (error) {

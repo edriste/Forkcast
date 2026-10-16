@@ -61,6 +61,20 @@ Web needs a reload after upgrading. Native installations need a new prebuild/bui
 
 The default basemaps are OpenFreeMap Positron for light mode and Dark for dark mode. `EXPO_PUBLIC_OSM_MAP_STYLE_URL` overrides the light style; `EXPO_PUBLIC_OSM_DARK_MAP_STYLE_URL` overrides the dark style. Restart Expo after changing either environment variable.
 
+## Walking distances (openrouteservice)
+
+Places use walking routes from the organization's saved office when the server has an openrouteservice key. Labels lead with an estimated walking time rounded up to whole minutes, followed by distance (for example, **≈ 8 min · 600 m**). Durations come from the same cached matrix response, so this adds no API calls. Straight-line estimates never acquire a walking-time estimate. The same routed distances drive labels, nearest sorting, distance filters and the wheel's reviewed fallback. Search results, favorites and place details share the integration. A confirmed unavailable route is shown as **No walking route found** and is excluded by distance limits. If routing is not configured, temporarily unavailable or rate-limited, distances fall back to clearly labelled straight-line estimates.
+
+1. Obtain a key from the [HeiGIT account dashboard](https://account.heigit.org/). Enable access to openrouteservice's matrix service for your key.
+2. Apply `202610160041_walking_distances.sql` to the target database (`npx supabase migration up --local` for local development).
+3. Locally, set `OPENROUTESERVICE_API_KEY=your-key` in the ignored `supabase/.env.local` file and restart `npx supabase functions serve places --env-file supabase/.env.local`. Keep the other existing values in that file.
+4. For hosted Supabase, set the **Edge Function secret** `OPENROUTESERVICE_API_KEY` in the dashboard and deploy the updated `places` function. Keep this key on the server; never put it in `.env` as an `EXPO_PUBLIC_` value.
+5. Set the organization's office location and reload the app.
+
+The function uses the current `https://api.heigit.org/openrouteservice/v2/matrix/foot-walking` endpoint, following the [provider's API address migration](https://ask.openrouteservice.org/t/deprecating-api-openrouteservice-org-in-favour-of-api-heigit-org/7912). It sends only office/restaurant coordinates, with up to 100 destinations in one request. Successful distances are shared across colleagues and cached for 30 days; confirmed unreachable routes are cached for one day. Moving either endpoint invalidates its cached route. Credentials and cached routing tables are not readable by app clients.
+
+Forkcast limits this connection to 400 upstream requests per rolling 24-hour window and spaces reservations by at least 2.1 seconds across all server instances; cached results use no upstream calls. These are application safeguards, not a guarantee of available provider quota—your account may also be used by other applications. Authentication/quota responses pause new requests for one hour. Additional spots that cannot be routed during a busy request use labelled estimates until an automatic refresh can fill their cache. First uncached loads may take longer while the walking matrix is calculated. These distances follow the provider's mapped walking network; paths, entrances and access data can affect results. Provider attribution is centralized under **Credits & licenses**.
+
 ## Local backend
 
 ```sh
@@ -77,7 +91,7 @@ Start the places function in another terminal:
 npx supabase functions serve places
 ```
 
-No Places API secret is required. You can optionally customize public-service identification and endpoints:
+Restaurant search itself needs no API secret. Walking distances use the optional server key described above. You can also customize public-service identification and endpoints:
 
 ```sh
 cp supabase/.env.example supabase/.env.local
@@ -268,7 +282,7 @@ Organization roles: apply `202610130034_organization_roles.sql` before loading t
 
 Member management: apply `202610130035_member_management.sql` (already applied locally). **Your team → Members & roles** shows the roster; tap a colleague's row as an administrator to change their role or remove their access. Removal requires confirmation and rotates the shared invitation code, invalidating older invitations. **Leave organization** lets members leave after confirmation. Administrators must appoint another administrator first if they are the last one. Leaving switches to another organization you belong to, or returns to the join/create screen. Reviews, cooking signups and payment records stay with the group; access changes do not cancel bookings or erase history. Existing signups can be settled by their meal organizer. A private membership signal updates the affected device after access revocation, and the same one-channel subscription also catches membership changes in other groups. When no group remains, a single account-only subscription watches for new memberships; foreground/reconnect and periodic fallbacks catch missed updates.
 
-Straight-line distances are calculated on the device from the selected organization's saved office coordinates to each restaurant. They appear in reviewed lists, favorites, search results, restaurant details and lunch options/candidate previews, labelled **straight line / Luftlinie**. **Places → Distance** offers 500 m, 1 km, 2 km or 3 km limits; the sort icon switches between best rated and nearest first. Map and reviewed list share the filter, and the wheel's reviewed-place fallback uses it too; explicit nominations keep priority. Favorites remain independent of the reviewed-place filters. Distances update when office/place coordinates change, require no location permission, account/API key or routing requests, and are not walking distances/times. Missing office coordinates disable distance choices; unknown restaurant distances sort last and are excluded only when a distance limit is active. No database migration or backend deployment is required.
+Distances use openrouteservice walking routes when configured, with device-calculated straight-line estimates as a clearly labelled fallback. They appear in reviewed lists, favorites, search results, restaurant details and lunch options/candidate previews. **Places → Distance** offers 500 m, 1 km, 2 km or 3 km limits; the sort icon switches between best rated and nearest first. Map and reviewed list share the filter, and the wheel's reviewed-place fallback uses it too; explicit nominations keep priority. Favorites remain independent of the reviewed-place filters. Missing office coordinates disable distance choices; unknown/unreachable distances sort last and are excluded when a distance limit is active. See **Walking distances (openrouteservice)** above for server setup and cache behavior. No device location permission is needed.
 
 Shared office orders: apply `202610140036_office_orders.sql`, `202610140037_order_organizer_selection.sql`, `202610140038_order_date_validation.sql` and `202610140039_order_reminder_reads.sql` before loading the updated app. On **Overview → Ordering in**, use **+ / Start group order** or the list icon to browse upcoming/past orders. Choose the colleague who will place the order, restaurant/menu link, delivery address/instructions, Berlin signup deadline and optional PayPal.me payment recipient. Participants enter item names, quantities, unit prices and requests, then save as **Still choosing** or **Ready to order**. Joining automatically selects **Ordering in** on the order date; leaving/cancelling clears only automatically generated responses and preserves manual choices.
 

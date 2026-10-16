@@ -881,5 +881,17 @@
   "Post comment": "Kommentar senden",
   "Cancel editing": "Bearbeitung abbrechen",
   "Write a comment between 1 and 2000 characters.": "Schreibe einen Kommentar mit 1 bis 2000 Zeichen.",
-  "You can only change your own comments.": "Du kannst nur deine eigenen Kommentare ändern."
+  "You can only change your own comments.": "Du kannst nur deine eigenen Kommentare ändern.",
+  "Walking distance from office: {distance}": "Fußweg vom Büro: {distance}",
+  "{distance} · walk": "{distance} · Fußweg",
+  "No walking route found.": "Kein Fußweg gefunden.",
+  "Walking distances from your office when available; straight-line estimates are labelled separately.": "Wenn verfügbar, werden Fußwege vom Büro verwendet. Schätzungen per Luftlinie sind gesondert gekennzeichnet.",
+  "Your team’s tried-and-tasted spots. Sorted by distance from your office.": "Die erprobten Restaurants deines Teams. Nach Entfernung vom Büro sortiert.",
+  "Walking routes": "Fußwege",
+  "Walking distances use openrouteservice by HeiGIT and OpenStreetMap data. Route availability depends on mapped footpaths and access restrictions.": "Fußwege werden mit openrouteservice von HeiGIT und OpenStreetMap-Daten berechnet. Die Verfügbarkeit hängt von erfassten Wegen und Zugangsbeschränkungen ab.",
+  "Walking routes are temporarily unavailable. Straight-line estimates are labelled separately.": "Fußwege sind vorübergehend nicht verfügbar. Schätzungen per Luftlinie sind gesondert gekennzeichnet.",
+  "Walking routes are not configured. Distances shown as straight line are estimates.": "Die Fußwegberechnung ist noch nicht eingerichtet. Als Luftlinie angezeigte Entfernungen sind Schätzungen.",
+  "Restaurant service is unavailable. Please try again shortly.": "Der Restaurantdienst ist nicht verfügbar. Bitte versuche es gleich noch einmal.",
+  "Estimated walk from office: {minutes} min, {distance}": "Geschätzter Fußweg vom Büro: {minutes} Min., {distance}",
+  "≈ {minutes} min": "≈ {minutes} Min."
 }

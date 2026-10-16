@@ -58,6 +58,11 @@ async function scenario(body: object, options: Options = {}) {
             search_area: 'Berlin Mitte',
             ...(options.located ? { latitude: 48.1, longitude: 11.5 } : {}),
           });
+    if (path === '/rest/v1/walking_distance_cache')
+      return response(init?.method === 'POST' ? null : []);
+    if (path === '/rest/v1/rpc/claim_walking_request') return response(true);
+    if (url === 'https://api.heigit.org/openrouteservice/v2/matrix/foot-walking')
+      return response({ distances: [[1250]], durations: [[1000]] });
     if (path === '/rest/v1/osm_location_cache') {
       if (init?.method === 'POST') return response(null);
       return response(
@@ -414,6 +419,42 @@ Deno.test(
       )!;
       assertEquals(new URL(ownership.url).searchParams.get('organization_id'), 'eq.' + org);
       assert(!result.calls.some((call) => call.url.includes('overpass-api.de')));
+    }
+  },
+);
+
+Deno.test(
+  'authenticated searches and vouched-for details receive walking distances; outsiders never route',
+  async () => {
+    const previous = Deno.env.get('OPENROUTESERVICE_API_KEY');
+    Deno.env.set('OPENROUTESERVICE_API_KEY', 'test-routing-secret');
+    try {
+      const search = await scenario(
+        { action: 'search', query: 'Miso' },
+        { fresh: true, located: true },
+      );
+      assertEquals(search.data.places[0].walking.meters, 1250);
+      const detail = await scenario(
+        { action: 'details', ids: [place.id] },
+        { details: true, located: true },
+      );
+      assertEquals(detail.data.places[0].walking.originLatitude, 48.1);
+      assertEquals(detail.data.places[0].walking.meters, 1250);
+      const denied = await scenario(
+        { action: 'details', ids: [place.id] },
+        { member: false, located: true },
+      );
+      assertEquals(denied.status, 403);
+      assert(!denied.calls.some((call) => call.url.includes('openrouteservice')));
+      const unknown = await scenario(
+        { action: 'details', ids: ['osm:node:999'] },
+        { located: true },
+      );
+      assertEquals(unknown.data.places.length, 0);
+      assert(!unknown.calls.some((call) => call.url.includes('openrouteservice')));
+    } finally {
+      if (previous === undefined) Deno.env.delete('OPENROUTESERVICE_API_KEY');
+      else Deno.env.set('OPENROUTESERVICE_API_KEY', previous);
     }
   },
 );

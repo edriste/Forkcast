@@ -6,6 +6,7 @@ import {
   hasCoordinates,
   straightLineDistance,
   withinDistance,
+  walkingMinutes,
 } from '../src/lib/distance';
 import { filterReviewed, sortReviewed, type Reviewed } from '../src/lib/reviews';
 const origin = { latitude: 0, longitude: 0 };
@@ -85,4 +86,65 @@ test('distance filters combine with cuisine/rating and sorting keeps unavailable
     'near',
   ]);
   expect(places[0].place.id).toBe('far');
+});
+
+test('routed walking distances drive filters and sorting, and known unreachable places are excluded', () => {
+  const routed = {
+    latitude: 0,
+    longitude: 0.001,
+    walking: {
+      originLatitude: 0,
+      originLongitude: 0,
+      latitude: 0,
+      longitude: 0.001,
+      meters: 1200,
+      seconds: 1000,
+    },
+  };
+  // The river/road network can turn a nearby point into a longer walk.
+  expect(straightLineDistance(origin, routed)).toBeLessThan(500);
+  expect(withinDistance(origin, routed, 500)).toBe(false);
+  expect(withinDistance(origin, routed, 2000)).toBe(true);
+  expect(compareDistance(origin, routed, { latitude: 0, longitude: 0.005 })).toBeGreaterThan(0);
+  expect(
+    withinDistance(origin, { ...routed, walking: { ...routed.walking, meters: null } }, 2000),
+  ).toBe(false);
+  // Moving either endpoint invalidates the route immediately, before the next network reload.
+  expect(withinDistance({ latitude: 0, longitude: 0.0001 }, routed, 500)).toBe(true);
+  expect(withinDistance(origin, { ...routed, longitude: 0.002 }, 500)).toBe(true);
+});
+
+test('walking minutes round provider durations up and reject missing, invalid or stale route data', () => {
+  const place = {
+    latitude: 0,
+    longitude: 0.001,
+    walking: {
+      originLatitude: 0,
+      originLongitude: 0,
+      latitude: 0,
+      longitude: 0.001,
+      meters: 600,
+      seconds: 481,
+    },
+  };
+  for (const [seconds, expected] of [
+    [0, 0],
+    [1, 1],
+    [59, 1],
+    [60, 1],
+    [61, 2],
+    [481, 9],
+    [1000, 17],
+  ])
+    expect(walkingMinutes(origin, { ...place, walking: { ...place.walking, seconds } })).toBe(
+      expected,
+    );
+  for (const seconds of [null, NaN, Infinity, -1])
+    expect(walkingMinutes(origin, { ...place, walking: { ...place.walking, seconds } })).toBeNull();
+  expect(walkingMinutes(origin, { latitude: 0, longitude: 0.001 })).toBeNull();
+  expect(
+    walkingMinutes(origin, { ...place, walking: { ...place.walking, meters: null } }),
+  ).toBeNull();
+  expect(walkingMinutes({ latitude: 1, longitude: 0 }, place)).toBeNull();
+  expect(walkingMinutes(origin, { ...place, longitude: 0.002 })).toBeNull();
 });

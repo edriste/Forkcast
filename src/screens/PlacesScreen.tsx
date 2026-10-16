@@ -230,7 +230,7 @@ export function PlacesScreen() {
           <Text style={styles.subtitle}>
             {t(
               sort === 'nearest' && hasCoordinates(org)
-                ? 'Your team’s tried-and-tasted spots. Sorted by straight-line distance from your office.'
+                ? 'Your team’s tried-and-tasted spots. Sorted by distance from your office.'
                 : 'Your team’s tried-and-tasted spots. Sorted by average rating.',
             )}
           </Text>

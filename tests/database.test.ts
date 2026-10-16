@@ -2557,3 +2557,31 @@ test('cooking discussions are member-private, author-owned, validated and live a
     ),
   ).toBe(2);
 });
+
+test('walking cache and provider quota reservations are server-only and bounded across requests', async () => {
+  await login(alice);
+  await expect(db.query('select * from public.walking_distance_cache')).rejects.toThrow(
+    'permission denied',
+  );
+  await expect(db.query('select public.claim_walking_request()')).rejects.toThrow(
+    'permission denied',
+  );
+  await db.exec('reset role; set role service_role');
+  expect(await scalar<boolean>('select public.claim_walking_request() as value')).toBe(true);
+  expect(await scalar<boolean>('select public.claim_walking_request() as value')).toBe(false);
+  await db.exec(
+    "update public.walking_request_gate set requests=400,available_at=clock_timestamp()-interval '1 second'",
+  );
+  expect(await scalar<boolean>('select public.claim_walking_request() as value')).toBe(false);
+  await db.exec(
+    "update public.walking_request_gate set window_end=clock_timestamp()-interval '1 second'",
+  );
+  expect(await scalar<boolean>('select public.claim_walking_request() as value')).toBe(true);
+  await db.query('select public.pause_walking_requests()');
+  expect(
+    await scalar<boolean>(
+      "select available_at > clock_timestamp()+interval '59 minutes' as value from public.walking_request_gate",
+    ),
+  ).toBe(true);
+  await login(alice);
+});

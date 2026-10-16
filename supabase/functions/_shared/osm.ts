@@ -1,3 +1,11 @@
+export type WalkingRoute = {
+  originLatitude: number;
+  originLongitude: number;
+  latitude: number;
+  longitude: number;
+  meters: number | null;
+  seconds: number | null;
+};
 import { cuisineLabel, normalizeCuisineTag } from './cuisineCatalogue.ts';
 export type Place = {
   id: string;
@@ -12,6 +20,7 @@ export type Place = {
   website?: string;
   mapsUrl?: string;
   updatedAt?: string;
+  walking?: WalkingRoute;
   cuisineOverride?: { cuisines: string[]; updatedAt: string };
 };
 export type OSMElement = {

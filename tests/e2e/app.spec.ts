@@ -138,6 +138,7 @@ async function backend(
     orderStatus?: 'open' | 'closed' | 'placed' | 'arrived';
     orderDeadline?: string;
     office?: boolean;
+    walking?: number | null;
     organizationRole?: 'admin' | 'member';
     differentCreator?: boolean;
     legacy?: boolean;
@@ -623,6 +624,17 @@ async function backend(
         });
         return;
       }
+      if (options.walking !== undefined)
+        Object.assign(place, {
+          walking: {
+            originLatitude: 52.52,
+            originLongitude: 13.39,
+            latitude: place.latitude,
+            longitude: place.longitude,
+            meters: options.walking,
+            seconds: options.walking === null ? null : 1000,
+          },
+        });
       if (body.action === 'details' && body.refresh && options.sourceUpdates) {
         place.types = ['restaurant', 'cuisine:thai'];
         place.category = 'Restaurant · Thai';
@@ -4012,4 +4024,74 @@ test.describe('German cooking comments', () => {
     await page.screenshot({ path: '/tmp/forkcast-comments-german.png' });
     expect(errors).toEqual([]);
   });
+});
+
+test('walking routes appear in place details, favorites and search and drive distance filtering', async ({
+  page,
+}) => {
+  const errors = await backend(page, {
+    reviewed: true,
+    office: true,
+    walking: 1250,
+    favorited: true,
+  });
+  await signIn(page);
+  await page.getByRole('radio', { name: 'List view', exact: true }).click();
+  await expect(
+    page.getByLabel('Estimated walk from office: 17 min, 1.3 km', { exact: true }).first(),
+  ).toBeVisible();
+  await page.screenshot({ path: '/tmp/forkcast-walking-list.png' });
+  await page.getByRole('button', { name: 'Distance: Any distance', exact: true }).click();
+  await page.getByRole('radio', { name: 'Within 1 km', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Read reviews', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Distance: Within 1 km', exact: true }).click();
+  await page.getByRole('radio', { name: 'Within 2 km', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Read reviews', exact: true })).toHaveCount(1);
+  await page.getByRole('button', { name: 'Read reviews', exact: true }).click();
+  await expect(
+    page.getByLabel('Estimated walk from office: 17 min, 1.3 km', { exact: true }).last(),
+  ).toBeVisible();
+  await page.getByRole('link', { name: 'Go back' }).click();
+  await page.getByRole('radio', { name: 'Favorites view', exact: true }).click();
+  await expect(
+    page.getByLabel('Estimated walk from office: 17 min, 1.3 km', { exact: true }).first(),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Find a place & add a review', exact: true }).click();
+  await page.getByLabel('Restaurant or cuisine').fill('Miso');
+  await page.getByRole('button', { name: 'Search lunch spots', exact: true }).click();
+  await expect(
+    page.getByLabel('Estimated walk from office: 17 min, 1.3 km', { exact: true }).last(),
+  ).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test.describe('German walking distances', () => {
+  test.use({ locale: 'de-DE' });
+  test('walking labels use the system language', async ({ page }) => {
+    const errors = await backend(page, { reviewed: true, office: true, walking: 1250 });
+    await page.goto('/');
+    await page.getByLabel('E-Mail', { exact: true }).fill('alice@example.test');
+    await page.getByLabel('Passwort', { exact: true }).fill('password123');
+    await page.getByRole('button', { name: 'Anmelden', exact: true }).click();
+    await page.getByRole('tab', { name: /Restaurants/ }).click();
+    await page.getByRole('radio', { name: 'Listenansicht', exact: true }).click();
+    await expect(
+      page.getByLabel('Geschätzter Fußweg vom Büro: 17 Min., 1,3 km', { exact: true }).first(),
+    ).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+});
+
+test('unreachable walking routes are shown and excluded from distance-limited results', async ({
+  page,
+}) => {
+  const errors = await backend(page, { reviewed: true, office: true, walking: null });
+  await signIn(page);
+  await page.getByRole('radio', { name: 'List view', exact: true }).click();
+  await expect(page.getByText('No walking route found.', { exact: true })).toBeVisible();
+  await expect(page.getByText('680 m · straight line', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Distance: Any distance', exact: true }).click();
+  await page.getByRole('radio', { name: 'Within 2 km', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Read reviews', exact: true })).toHaveCount(0);
+  expect(errors).toEqual([]);
 });

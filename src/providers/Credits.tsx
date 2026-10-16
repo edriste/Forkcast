@@ -153,6 +153,15 @@ export function CreditsProvider({ children }: React.PropsWithChildren) {
                 {link('MapLibre', 'https://maplibre.org/')}
               </Card>
               <Card>
+                <Text style={styles.heading}>{t('Walking routes')}</Text>
+                <Text style={styles.text}>
+                  {t(
+                    'Walking distances use openrouteservice by HeiGIT and OpenStreetMap data. Route availability depends on mapped footpaths and access restrictions.',
+                  )}
+                </Text>
+                {link('© openrouteservice.org by HeiGIT', 'https://openrouteservice.org/')}
+              </Card>
+              <Card>
                 <Text style={styles.heading}>{t('Cuisine presets')}</Text>
                 <Text style={styles.text}>
                   {t(

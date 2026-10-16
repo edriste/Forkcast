@@ -8,14 +8,25 @@ export async function placesRequest<T>(
     body: { ...body, organizationId },
   });
   if (error) {
+    const unavailable = 'Restaurant service is unavailable. Please try again shortly.';
     let detail = error.message;
     if ('context' in error && error.context instanceof Response) {
+      const response = error.context;
+      let payload: { error?: unknown; message?: unknown; msg?: unknown } = {};
       try {
-        detail = (await error.context.json()).error ?? detail;
+        payload = await response.clone().json();
       } catch {
-        /* keep original error */
+        /* A stopped gateway may return HTML instead of JSON. */
       }
-    }
+      // Preserve actionable errors returned by the function itself.
+      if (typeof payload.error === 'string' && payload.error.trim()) detail = payload.error;
+      else if ([404, 500, 502, 503, 504].includes(response.status)) detail = unavailable;
+      else if (response.status === 401) detail = 'Sign in first';
+      else {
+        const reason = payload.message ?? payload.msg;
+        if (typeof reason === 'string' && reason.trim()) detail = reason;
+      }
+    } else if (detail === 'Failed to send a request to the Edge Function') detail = unavailable;
     throw new Error(detail);
   }
   if (data.error) throw new Error(data.error);
