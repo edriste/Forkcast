@@ -59,6 +59,8 @@ function MainTabs({ initialTab }: { initialTab: keyof MainTabParams }) {
         tabBarInactiveTintColor: colors.muted,
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.line },
         tabBarLabelStyle: { fontWeight: '600' },
+        // Reserve the full pill width when labels move beside icons on wider screens.
+        tabBarIconStyle: { width: 48, flexShrink: 0 },
         tabBarIcon: ({ color, size, focused }) => (
           <View
             style={{
