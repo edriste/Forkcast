@@ -135,6 +135,10 @@ export function CreditsProvider({ children }: React.PropsWithChildren) {
                     'Restaurant facts and address search use OpenStreetMap data, available under the Open Database License (ODbL). Team reviews and cuisine corrections are supplied by your colleagues.',
                   )}
                 </Text>
+                <Text style={styles.text}>
+                  {t('Restaurant search can be provided by Geoapify using OpenStreetMap data.')}
+                </Text>
+                {link('Geoapify', 'https://www.geoapify.com/')}
                 {link(t('© OpenStreetMap contributors'), 'https://www.openstreetmap.org/copyright')}
                 {link(
                   'Open Database License 1.0',

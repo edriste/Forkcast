@@ -176,7 +176,7 @@ export function SearchScreen({
           />
         </Card>
       ))}
-      {places.length > 0 && <OSMAttribution />}
+      {places.length > 0 && <OSMAttribution places={places} />}
     </Page>
   );
 }

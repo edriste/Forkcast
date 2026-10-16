@@ -860,7 +860,14 @@ export function OverviewScreen() {
               )}
             </Text>
           </InfoDisclosure>
-          {options.length > 0 && <OSMAttribution />}
+          {(options.length > 0 || savedPlaces.length > 0) && (
+            <OSMAttribution
+              places={[
+                ...options.map((option) => option.place),
+                ...savedPlaces.map((item) => item.place),
+              ]}
+            />
+          )}
         </>
       )}
     </Page>

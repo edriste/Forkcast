@@ -14,6 +14,8 @@ services:
       OSM_USER_AGENT: ${OSM_USER_AGENT:?Set OSM_USER_AGENT with an operator contact}
       OSM_NOMINATIM_URL: ${OSM_NOMINATIM_URL:-https://nominatim.openstreetmap.org/search}
       OSM_GEOCODING_PROVIDER: ${OSM_GEOCODING_PROVIDER:-nominatim}
+      OSM_PLACES_PROVIDER: ${OSM_PLACES_PROVIDER:-overpass}
+      GEOAPIFY_API_KEY: ${GEOAPIFY_API_KEY:-}
       OSM_OVERPASS_URL: ${OSM_OVERPASS_URL:-https://overpass-api.de/api/interpreter}
       OPENROUTESERVICE_MATRIX_URL: ${OPENROUTESERVICE_MATRIX_URL:-}
       OPENROUTESERVICE_API_KEY: ${OPENROUTESERVICE_API_KEY:-}

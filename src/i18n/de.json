@@ -940,5 +940,15 @@
   "The location provider took too long to respond. Please wait one minute before trying again.": "Der Standortanbieter hat nicht rechtzeitig geantwortet. Warte bitte eine Minute, bevor du es erneut versuchst.",
   "The location provider could not be reached or returned an invalid response. Please try again later.": "Der Standortanbieter war nicht erreichbar oder hat eine ungültige Antwort gesendet. Versuche es später erneut.",
   "Restaurant search failed recently. Please wait one minute before trying again. If this continues, ask your administrator to check the places function logs.": "Die Restaurantsuche ist gerade fehlgeschlagen. Warte bitte eine Minute vor einem neuen Versuch. Falls das Problem weiterhin besteht, bitte deine Administration, die Protokolle der places-Funktion zu prüfen.",
-  "Restaurants in your area are being loaded. Please wait for the current search to finish.": "Restaurants in deinem Gebiet werden geladen. Warte bitte, bis die laufende Suche abgeschlossen ist."
+  "Restaurants in your area are being loaded. Please wait for the current search to finish.": "Restaurants in deinem Gebiet werden geladen. Warte bitte, bis die laufende Suche abgeschlossen ist.",
+  "Powered by Geoapify": "Unterstützt von Geoapify",
+  "Restaurant search can be provided by Geoapify using OpenStreetMap data.": "Die Restaurantsuche kann über Geoapify mit OpenStreetMap-Daten erfolgen.",
+  "Restaurant search provider is not configured correctly.": "Der Anbieter für die Restaurantsuche ist nicht richtig konfiguriert.",
+  "Restaurant search needs a Geoapify API key. Ask your administrator to configure it.": "Die Restaurantsuche benötigt einen Geoapify-API-Schlüssel. Bitte die Administration, ihn einzurichten.",
+  "Restaurant search was denied by Geoapify. Ask your administrator to check the API key and access settings.": "Geoapify hat die Restaurantsuche abgelehnt. Bitte die Administration, den API-Schlüssel und die Zugriffseinstellungen zu prüfen.",
+  "Restaurant search is rate limited by Geoapify. Please try again later.": "Das Anfragelimit für die Restaurantsuche bei Geoapify ist erreicht. Bitte versuche es später erneut.",
+  "Restaurant search is temporarily unavailable. Please try again later.": "Die Restaurantsuche ist vorübergehend nicht verfügbar. Bitte versuche es später erneut.",
+  "Geoapify returned an incomplete restaurant response. Please try again later.": "Geoapify hat unvollständige Restaurantdaten geliefert. Bitte versuche es später erneut.",
+  "Geoapify returned no supported OpenStreetMap restaurants. Ask your administrator to check the provider response.": "Geoapify hat keine unterstützten OpenStreetMap-Restaurants geliefert. Bitte die Administration, die Antwort des Anbieters zu prüfen.",
+  "The restaurant area is too large to load completely. Saved places have been kept.": "Das Suchgebiet ist zu groß, um es vollständig zu laden. Gespeicherte Orte wurden beibehalten."
 }

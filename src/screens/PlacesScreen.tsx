@@ -267,7 +267,9 @@ export function PlacesScreen() {
               </View>
             </ItemRow>
           ))}
-          {filtered.some(({ place }) => place.provider === 'osm') && <OSMAttribution />}
+          {filtered.some(({ place }) => place.provider === 'osm') && (
+            <OSMAttribution places={filtered.map((item) => item.place)} />
+          )}
         </>
       )}
     </Page>

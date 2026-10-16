@@ -120,7 +120,7 @@ export function ReviewedMap({
             ))}
         </Map>
       )}
-      <OSMAttribution maps />
+      <OSMAttribution maps places={places.map((item) => item.place)} />
     </View>
   );
 }

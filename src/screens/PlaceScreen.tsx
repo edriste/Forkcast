@@ -157,7 +157,7 @@ export function PlaceScreen({
               }
             />
           )}
-          {place.provider === 'osm' && <OSMAttribution />}
+          {place.provider === 'osm' && <OSMAttribution places={[place]} />}
         </Card>
       )}
       {resource.data?.aggregate && (

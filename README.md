@@ -143,6 +143,8 @@ Set your hosted project URL/public key in `.env`. The function uses the built-in
 
 Enable email/password signups, confirmations and a minimum password length of 8. Configure the hosted Confirm signup email template to display `{{ .Token }}` (the local template is in `supabase/templates/confirmation.html`). Configure SMTP for reliable delivery.
 
+Restaurant discovery and saved-place updates can also use **Geoapify**, avoiding the public Overpass endpoint while retaining OSM IDs and existing team data. Set server-only `OSM_PLACES_PROVIDER=geoapify` and `GEOAPIFY_API_KEY`, deploy the `places` function and publish the frontend attribution changes. Overpass remains the keyless default. See [Geoapify setup and limits](docs/cloudflare.md#geoapify-restaurant-search). Address search and walking routes are configured independently.
+
 Optional server secrets: `OSM_USER_AGENT` (an application identifier with an operator contact URL/email), `OSM_NOMINATIM_URL`, `OSM_OVERPASS_URL`. The defaults work without API keys. Supply a contact identifier for a public deployment and respect provider policies. `EXPO_PUBLIC_OSM_MAP_STYLE_URL` can replace the default OpenFreeMap Positron style with another compatible style/provider.
 
 If public Nominatim rejects requests from your host, set `OSM_GEOCODING_PROVIDER=openrouteservice` and supply a geocoding-enabled `OPENROUTESERVICE_API_KEY`. This explicitly selects ORS/Pelias for office/address search, using the same server-only key as walking routes. See the [address provider setup](docs/cloudflare.md) for switching, quotas and deployment steps. Restaurant discovery remains on Overpass.
@@ -260,7 +262,7 @@ See [decisions](docs/decisions.md) and [verification](docs/verification.md). Opt
 
 ## OSM edits and saved-place freshness
 
-Opening Places or a saved place checks source facts older than 24 hours by their exact OSM IDs, independently of the monthly office catalogue discovery cache. Returning from **Edit on OpenStreetMap** automatically checks updated facts, with further checks during a ten-minute window and a five-minute cooldown per place. Source changes also update cached search entries without extending the catalogue lifetime. Reviews and private team cuisine overrides are preserved. To stop using a team override, select **Use OpenStreetMap cuisine**; this also requests fresh source facts. Public Overpass servers may take time to reflect an OSM edit. Failed or incomplete lookups keep saved facts and show a warning.
+Opening Places or a saved place checks source facts older than 24 hours by their exact OSM IDs, independently of the monthly office catalogue discovery cache. Returning from **Edit on OpenStreetMap** automatically checks updated facts, with further checks during a ten-minute window and a five-minute cooldown per place. Source changes also update cached search entries without extending the catalogue lifetime. Reviews and private team cuisine overrides are preserved. To stop using a team override, select **Use OpenStreetMap cuisine**; this also requests fresh source facts. The configured restaurant provider may take time to reflect an OSM edit; Geoapify follows its own OSM import schedule. Failed or incomplete lookups keep saved facts and show a warning.
 
 Apply `202610120019_osm_place_refresh.sql` and deploy the updated `places` Edge Function on hosted projects. Locally the migration is applied and the updated function is served. Leases, the existing shared Overpass request gate, and retry cooldowns prevent repeated/concurrent upstream requests.
 

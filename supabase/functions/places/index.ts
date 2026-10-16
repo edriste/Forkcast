@@ -1,6 +1,8 @@
 import { addWalkingDistances } from '../_shared/walking.ts';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { geocode, geocodingProvider } from '../_shared/geocoding.ts';
+import { discoverGeoapify, placesProvider, refreshGeoapify } from '../_shared/geoapify.ts';
+import { restaurantQuery } from '../_shared/overpass.ts';
 import { applyCuisineOverride, type CuisineOverride } from '../_shared/cuisines.ts';
 import {
   CACHE_DAYS,
@@ -60,7 +62,9 @@ async function upstream(url: string, options: RequestInit = {}) {
   try {
     response = await fetch(url, {
       ...options,
-      signal: AbortSignal.timeout(40000),
+      signal: options.signal
+        ? AbortSignal.any([options.signal, AbortSignal.timeout(40000)])
+        : AbortSignal.timeout(40000),
       headers: { ...options.headers, 'User-Agent': userAgent, Accept: 'application/json' },
     });
     // Reading the body can also time out after the server sends its headers.
@@ -89,6 +93,15 @@ async function upstream(url: string, options: RequestInit = {}) {
       host: new URL(url).hostname,
       status: response.status,
     });
+    if (host === 'api.geoapify.com') {
+      if (response.status === 401 || response.status === 403)
+        throw new Error(
+          'Restaurant search was denied by Geoapify. Ask your administrator to check the API key and access settings.',
+        );
+      if (response.status === 429)
+        throw new Error('Restaurant search is rate limited by Geoapify. Please try again later.');
+      throw new Error('Restaurant search is temporarily unavailable. Please try again later.');
+    }
     if (new URL(url).hostname === 'api.heigit.org') {
       if (response.status === 401 || response.status === 403)
         throw new Error(
@@ -114,6 +127,8 @@ async function getRegion(
   admin: SupabaseClient,
   org: { id: string; search_area: string; latitude?: number | null; longitude?: number | null },
 ) {
+  const provider = placesProvider();
+  const areaKey = provider === 'overpass' ? org.search_area : `${provider}:${org.search_area}`;
   const cached = await client
     .from('osm_region_cache')
     .select('area_query,latitude,longitude,places,refreshed_at,lease_until,retry_after')
@@ -121,13 +136,17 @@ async function getRegion(
     .maybeSingle();
   if (cached.error) throw cached.error;
   const previous = cached.data as Region | null;
-  const reusable = previous?.area_query === org.search_area ? previous : null;
+  const reusable =
+    previous && [org.search_area, `geoapify:${org.search_area}`].includes(previous.area_query)
+      ? previous
+      : null;
   if (
+    reusable?.area_query === areaKey &&
     reusable?.refreshed_at &&
     Date.parse(reusable.refreshed_at) > Date.now() - CACHE_DAYS * 86400000
   )
     return { region: reusable, warning: '' };
-  const lease = await admin.rpc('claim_osm_refresh', { org: org.id, area: org.search_area });
+  const lease = await admin.rpc('claim_osm_refresh', { org: org.id, area: areaKey });
   if (lease.error) throw lease.error;
   if (!lease.data) {
     const coolingDown = !!previous?.retry_after && Date.parse(previous.retry_after) > Date.now();
@@ -174,37 +193,42 @@ async function getRegion(
     const gate = await admin.rpc('claim_osm_request', { service_name: 'overpass' });
     if (gate.error || !gate.data)
       throw new Error('Restaurant lookup is busy. Please try again later.');
-    const around = `around:${OSM_RADIUS_METERS},${latitude},${longitude}`;
-    const query = `[out:json][timeout:25][maxsize:16777216];(nwr["amenity"~"^(restaurant|cafe|fast_food|food_court)$"]["name"](${around});nwr["shop"="bakery"]["name"](${around}););out center tags;`;
-    const data = await upstream(
-      Deno.env.get('OSM_OVERPASS_URL') ?? 'https://overpass-api.de/api/interpreter',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ data: query }).toString(),
-      },
-    );
-    // Overpass can report failures inside an HTTP 200 response. Never replace good data with a partial result.
-    if (!Array.isArray(data.elements) || data.remark) {
-      console.warn('OSM restaurant response incomplete', {
-        host: new URL(Deno.env.get('OSM_OVERPASS_URL') ?? 'https://overpass-api.de/api/interpreter')
-          .hostname,
-        reason:
-          typeof data.remark === 'string' && /timed?\s*out|timeout/i.test(data.remark)
-            ? 'timeout'
-            : 'incomplete response',
-      });
-      throw new Error('Restaurant lookup did not complete. Please try again later.');
-    }
     const refreshedAt = new Date().toISOString();
-    const places = [
-      ...new Map(
-        (data.elements as OSMElement[])
-          .map((element) => normalizeElement(element, refreshedAt))
-          .filter((place): place is Place => place !== null)
-          .map((place) => [place.id, place]),
-      ).values(),
-    ];
+    let places: Place[];
+    if (provider === 'geoapify') {
+      places = await discoverGeoapify(latitude, longitude, upstream);
+    } else {
+      const query = restaurantQuery(latitude, longitude);
+      const data = await upstream(
+        Deno.env.get('OSM_OVERPASS_URL') ?? 'https://overpass-api.de/api/interpreter',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ data: query }).toString(),
+        },
+      );
+      // Overpass can report failures inside an HTTP 200 response. Never replace good data with a partial result.
+      if (!Array.isArray(data.elements) || data.remark) {
+        console.warn('OSM restaurant response incomplete', {
+          host: new URL(
+            Deno.env.get('OSM_OVERPASS_URL') ?? 'https://overpass-api.de/api/interpreter',
+          ).hostname,
+          reason:
+            typeof data.remark === 'string' && /timed?\s*out|timeout/i.test(data.remark)
+              ? 'timeout'
+              : 'incomplete response',
+        });
+        throw new Error('Restaurant lookup did not complete. Please try again later.');
+      }
+      places = [
+        ...new Map(
+          (data.elements as OSMElement[])
+            .map((element) => normalizeElement(element, refreshedAt))
+            .filter((place): place is Place => place !== null)
+            .map((place) => [place.id, place]),
+        ).values(),
+      ];
+    }
     for (let i = 0; i < places.length; i += 200) {
       const saved = await admin.from('places').upsert(
         places.slice(i, i + 200).map((place) => ({
@@ -217,7 +241,7 @@ async function getRegion(
       if (saved.error) throw saved.error;
     }
     const region = {
-      area_query: org.search_area,
+      area_query: areaKey,
       latitude,
       longitude,
       places,
@@ -264,8 +288,10 @@ async function refreshPlaceFacts(
     )
     .map((place) => place.id);
   if (!ids.length) return '';
+  const provider = placesProvider();
   const { data: leases, error } = await admin.rpc('claim_osm_place_refresh', {
-    ids,
+    // Geoapify has one request per place, unlike Overpass's batch lookup.
+    ids: provider === 'geoapify' ? ids.slice(0, 10) : ids,
     force_refresh: force,
   });
   if (error) throw error;
@@ -278,29 +304,34 @@ async function refreshPlaceFacts(
     const gate = await admin.rpc('claim_osm_request', { service_name: 'overpass' });
     if (gate.error) throw gate.error;
     if (!gate.data) throw new Error('Restaurant lookup is busy. Please try again later.');
-    const selectors = leases
-      .map(({ place_id }: { place_id: string }) => {
-        const [, type, id] = place_id.split(':');
-        return `${type}(${id});`;
-      })
-      .join('');
-    const data = await upstream(
-      Deno.env.get('OSM_OVERPASS_URL') ?? 'https://overpass-api.de/api/interpreter',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          data: `[out:json][timeout:25][maxsize:16777216];(${selectors});out center tags;`,
-        }).toString(),
-      },
-    );
-    if (!Array.isArray(data.elements) || data.remark)
-      throw new Error('Restaurant lookup did not complete. Please try again later.');
-    const wanted = new Set(leases.map((row: { place_id: string }) => row.place_id));
-    const updatedAt = new Date().toISOString();
-    const places = (data.elements as OSMElement[])
-      .map((element) => normalizeElement(element, updatedAt))
-      .filter((place): place is Place => !!place && wanted.has(place.id));
+    const wanted = new Set<string>(leases.map((row: { place_id: string }) => row.place_id));
+    let places: Place[];
+    if (provider === 'geoapify') {
+      places = await refreshGeoapify([...wanted], upstream);
+    } else {
+      const selectors = leases
+        .map(({ place_id }: { place_id: string }) => {
+          const [, type, id] = place_id.split(':');
+          return `${type}(${id});`;
+        })
+        .join('');
+      const data = await upstream(
+        Deno.env.get('OSM_OVERPASS_URL') ?? 'https://overpass-api.de/api/interpreter',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            data: `[out:json][timeout:25][maxsize:16777216];(${selectors});out center tags;`,
+          }).toString(),
+        },
+      );
+      if (!Array.isArray(data.elements) || data.remark)
+        throw new Error('Restaurant lookup did not complete. Please try again later.');
+      const updatedAt = new Date().toISOString();
+      places = (data.elements as OSMElement[])
+        .map((element) => normalizeElement(element, updatedAt))
+        .filter((place): place is Place => !!place && wanted.has(place.id));
+    }
     const saved = await admin.rpc('finish_osm_place_refresh', {
       batch,
       updates: places,

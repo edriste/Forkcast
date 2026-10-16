@@ -10,6 +10,7 @@ import { cuisineLabel, normalizeCuisineTag } from './cuisineCatalogue.ts';
 export type Place = {
   id: string;
   provider: 'osm' | 'google_legacy';
+  dataSource?: 'geoapify';
   name: string;
   address: string;
   latitude: number | null;

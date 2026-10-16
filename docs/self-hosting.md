@@ -48,6 +48,9 @@ SMTP_USER=YOUR_SMTP_USER
 SMTP_PASS=YOUR_SMTP_PASSWORD
 SMTP_SENDER_NAME=Forkcast
 OSM_USER_AGENT=Forkcast/1.0 (mailto:admin@example.com)
+# Optional replacement for public Overpass:
+OSM_PLACES_PROVIDER=overpass
+GEOAPIFY_API_KEY=
 FORKCAST_CONFIRMATION_TEMPLATE_URL=https://lunch.example.com/auth/confirmation.html
 GOOGLE_ENABLED=false
 ```
@@ -138,13 +141,13 @@ Enable `GOOGLE_ENABLED=true`, fill `GOOGLE_CLIENT_ID`/`GOOGLE_SECRET` in the bac
 
 Self-hosting the app/backend does not automatically self-host these providers:
 
-| Capability                            | Default                                    | Operator-managed option                                                                                                                             |
-| ------------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Restaurant/address lookup             | Public Overpass and Nominatim              | Set `OSM_OVERPASS_URL` and `OSM_NOMINATIM_URL`, or select `OSM_GEOCODING_PROVIDER=openrouteservice` with a geocoding-enabled ORS key on `functions` |
-| Map styles, tiles, glyphs and sprites | OpenFreeMap                                | Set the frontend's light/dark style URLs to your map service; ensure the style's referenced assets are also reachable                               |
-| Walking distances/durations           | HeiGIT/openrouteservice, with a server key | Set `OPENROUTESERVICE_MATRIX_URL` to your own complete foot-walking matrix endpoint; a private keyless ORS instance needs no provider key           |
-| Sign-in                               | Your Auth + SMTP server                    | Optional Google OAuth remains external                                                                                                              |
-| Payment links                         | PayPal.me                                  | No payment processor is hosted by Forkcast; payments/confirmations remain manually tracked                                                          |
+| Capability                            | Default                                    | Operator-managed option                                                                                                                                                                                                            |
+| ------------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Restaurant/address lookup             | Public Overpass and Nominatim              | Set `OSM_OVERPASS_URL` and `OSM_NOMINATIM_URL`, select `OSM_PLACES_PROVIDER=geoapify` with `GEOAPIFY_API_KEY` for restaurants, or select `OSM_GEOCODING_PROVIDER=openrouteservice` with a geocoding-enabled ORS key on `functions` |
+| Map styles, tiles, glyphs and sprites | OpenFreeMap                                | Set the frontend's light/dark style URLs to your map service; ensure the style's referenced assets are also reachable                                                                                                              |
+| Walking distances/durations           | HeiGIT/openrouteservice, with a server key | Set `OPENROUTESERVICE_MATRIX_URL` to your own complete foot-walking matrix endpoint; a private keyless ORS instance needs no provider key                                                                                          |
+| Sign-in                               | Your Auth + SMTP server                    | Optional Google OAuth remains external                                                                                                                                                                                             |
+| Payment links                         | PayPal.me                                  | No payment processor is hosted by Forkcast; payments/confirmations remain manually tracked                                                                                                                                         |
 
 For hosted walking routes, add `OPENROUTESERVICE_API_KEY` to the backend `.env` and recreate `functions`. For your own ORS server, set the complete `OPENROUTESERVICE_MATRIX_URL` (including its foot-walking profile path) on the server. It is not accepted from app requests. Existing cache and conservative rate controls apply to both deployments. When changing routing providers, clear `public.walking_distance_cache` deliberately so old results are recalculated. Missing/unavailable routes retain the documented labelled fallback. No routing credentials belong in frontend configuration.
 
@@ -172,3 +175,5 @@ Deploy the complete export together, including its matching index, assets and ve
 Upgrade Supabase separately using the upstream version-specific upgrade instructions, preserving your override and volumes. The supplied override targets `self-hosted/v0.8.2`; review service names, main worker behavior and environment changes before switching versions. Never use `docker compose down -v`, a development database reset or the upstream `reset.sh` as an upgrade command. Rolling the frontend back does not undo schema migrations; restore only as part of a planned database/storage recovery.
 
 For native builds, configure the same public URL/anon key, map endpoints and optional Google flag in `.env` before building. Native app configuration is embedded at build time; web runtime configuration does not change installed binaries. MapLibre requires an installed native build rather than Expo Go. No EAS account is required when building with local Android/Xcode tooling.
+
+For [Geoapify restaurant search](cloudflare.md#geoapify-restaurant-search), put `OSM_PLACES_PROVIDER=geoapify` and `GEOAPIFY_API_KEY` in the Supabase Compose environment, then recreate the `functions` service with the Forkcast override. Local CLI development reads the same server secrets from `supabase/.env.local` when served with `supabase functions serve places --env-file supabase/.env.local --no-verify-jwt`. Never expose the key through web runtime configuration. Publish the updated frontend to display provider attribution.

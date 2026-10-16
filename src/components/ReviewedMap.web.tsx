@@ -46,7 +46,12 @@ export function ReviewedMap({
           [bounds[2], bounds[3]],
         ],
         fitBoundsOptions: { padding: 45, maxZoom: 17 },
-        attributionControl: { compact: false },
+        attributionControl: {
+          compact: false,
+          customAttribution: places.some((item) => item.place.dataSource === 'geoapify')
+            ? '<a href="https://www.geoapify.com/" target="_blank" rel="noopener noreferrer">Powered by Geoapify</a>'
+            : undefined,
+        },
         locale: {
           'AttributionControl.ToggleAttribution': t('Toggle attribution'),
           'AttributionControl.MapFeedback': t('Map feedback'),

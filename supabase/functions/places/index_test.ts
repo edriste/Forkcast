@@ -17,6 +17,10 @@ const place = normalizeElement(
   '2026-01-01T00:00:00Z',
 )!;
 type Options = {
+  restaurantProvider?: 'geoapify';
+  geoapifyCache?: boolean;
+  geoapifyStatus?: number;
+  noGeoapifyKey?: boolean;
   member?: boolean;
   fresh?: boolean;
   stale?: boolean;
@@ -43,6 +47,11 @@ type Options = {
   shortlisted?: boolean;
 };
 async function scenario(body: object, options: Options = {}) {
+  const oldPlacesProvider = Deno.env.get('OSM_PLACES_PROVIDER');
+  const oldGeoapifyKey = Deno.env.get('GEOAPIFY_API_KEY');
+  Deno.env.set('OSM_PLACES_PROVIDER', options.restaurantProvider || 'overpass');
+  if (options.noGeoapifyKey) Deno.env.delete('GEOAPIFY_API_KEY');
+  else Deno.env.set('GEOAPIFY_API_KEY', 'private-geoapify-test-key');
   const original = globalThis.fetch;
   const oldProvider = Deno.env.get('OSM_GEOCODING_PROVIDER');
   const oldKey = Deno.env.get('OPENROUTESERVICE_API_KEY');
@@ -130,7 +139,7 @@ async function scenario(body: object, options: Options = {}) {
         });
       if (options.fresh || options.stale)
         return response({
-          area_query: 'Berlin Mitte',
+          area_query: options.geoapifyCache ? 'geoapify:Berlin Mitte' : 'Berlin Mitte',
           latitude: 52.52,
           longitude: 13.4,
           places: [place],
@@ -183,6 +192,25 @@ async function scenario(body: object, options: Options = {}) {
           : [{ display_name: 'Berlin Mitte, Germany', lat: '52.52', lon: '13.4' }],
       );
     }
+    if (url.startsWith('https://api.geoapify.com/')) {
+      if (options.geoapifyStatus)
+        return response({ message: 'private-geoapify-test-key' }, options.geoapifyStatus);
+      return response({
+        features: [
+          {
+            properties: {
+              name: 'Miso Kitchen',
+              lat: 52.52,
+              lon: 13.4,
+              datasource: {
+                sourcename: 'openstreetmap',
+                raw: { osm_type: 'n', osm_id: 1, amenity: 'restaurant', cuisine: 'thai' },
+              },
+            },
+          },
+        ],
+      });
+    }
     if (url.startsWith('https://overpass-api.de/')) {
       if (options.timeout) throw new DOMException('Sensitive upstream URL', 'TimeoutError');
       if (options.unavailable) return response({ error: 'Busy' }, 429);
@@ -217,6 +245,13 @@ async function scenario(body: object, options: Options = {}) {
     return { status: result.status, data: await result.json(), calls };
   } finally {
     globalThis.fetch = original;
+    for (const [name, value] of [
+      ['OSM_PLACES_PROVIDER', oldPlacesProvider],
+      ['GEOAPIFY_API_KEY', oldGeoapifyKey],
+    ]) {
+      if (value === undefined) Deno.env.delete(name!);
+      else Deno.env.set(name!, value);
+    }
     if (oldProvider === undefined) Deno.env.delete('OSM_GEOCODING_PROVIDER');
     else Deno.env.set('OSM_GEOCODING_PROVIDER', oldProvider);
     if (oldKey === undefined) Deno.env.delete('OPENROUTESERVICE_API_KEY');
@@ -675,5 +710,83 @@ Deno.test(
       if (previous === undefined) Deno.env.delete('OPENROUTESERVICE_API_KEY');
       else Deno.env.set('OPENROUTESERVICE_API_KEY', previous);
     }
+  },
+);
+
+Deno.test(
+  'Geoapify discovery preserves OSM identity and replaces a fresh Overpass catalogue on switch',
+  async () => {
+    const result = await scenario(
+      { action: 'search', query: 'Miso' },
+      { restaurantProvider: 'geoapify', fresh: true, located: true },
+    );
+    assertEquals(result.status, 200);
+    assertEquals(result.data.places[0].id, 'osm:node:1');
+    assertEquals(result.data.places[0].dataSource, 'geoapify');
+    assertEquals(result.data.places[0].types, ['restaurant', 'cuisine:thai']);
+    const request = result.calls.find((call) => call.url.startsWith('https://api.geoapify.com/'))!;
+    assertEquals(new URL(request.url).searchParams.get('filter'), 'circle:11.5,48.1,3000');
+    assert(result.calls.every((call) => !call.url.includes('overpass-api.de')));
+    assert(!JSON.stringify(result.data).includes('private-geoapify-test-key'));
+  },
+);
+Deno.test('Geoapify failures retain saved results and never fall back to Overpass', async () => {
+  for (const status of [401, 403, 429, 500]) {
+    const result = await scenario(
+      { action: 'search', query: 'Miso' },
+      { restaurantProvider: 'geoapify', stale: true, located: true, geoapifyStatus: status },
+    );
+    assertEquals(result.status, 200);
+    assertEquals(result.data.places[0].id, 'osm:node:1');
+    assert(result.data.warning.length > 0);
+    assert(!JSON.stringify(result.data).includes('private-geoapify-test-key'));
+    assert(result.calls.every((call) => !call.url.includes('overpass-api.de')));
+  }
+});
+Deno.test(
+  'Geoapify saved-place refresh uses the exact OSM identity and keeps team overrides',
+  async () => {
+    const result = await scenario(
+      { action: 'details', ids: [place.id], refresh: true },
+      { restaurantProvider: 'geoapify', reviewed: true, cuisines: true },
+    );
+    assertEquals(result.status, 200);
+    assertEquals(result.data.places[0].types, ['restaurant', 'cuisine:italian', 'cuisine:pizza']);
+    assertEquals(result.data.places[0].dataSource, 'geoapify');
+    const request = result.calls.find((call) => call.url.startsWith('https://api.geoapify.com/'))!;
+    assertEquals(new URL(request.url).pathname, '/v2/place-details');
+    assertEquals(new URL(request.url).searchParams.get('osm_type'), 'n');
+    assertEquals(new URL(request.url).searchParams.get('osm_id'), '1');
+    assert(result.calls.every((call) => !call.url.includes('overpass-api.de')));
+  },
+);
+Deno.test('missing Geoapify configuration fails without sending a provider request', async () => {
+  const result = await scenario(
+    { action: 'search', query: 'Miso' },
+    { restaurantProvider: 'geoapify', noGeoapifyKey: true, located: true },
+  );
+  assert(result.data.error.includes('Geoapify API key'));
+  assert(
+    result.calls.every(
+      (call) => !call.url.includes('geoapify.com') && !call.url.includes('overpass-api.de'),
+    ),
+  );
+});
+
+Deno.test(
+  'fresh Geoapify catalogues cost no upstream calls, and nonmembers cannot trigger Geoapify',
+  async () => {
+    const cached = await scenario(
+      { action: 'search', query: 'Miso' },
+      { restaurantProvider: 'geoapify', geoapifyCache: true, fresh: true },
+    );
+    assertEquals(cached.status, 200);
+    assert(cached.calls.every((call) => call.url.startsWith('https://supabase.test')));
+    const denied = await scenario(
+      { action: 'search', query: 'Miso' },
+      { restaurantProvider: 'geoapify', member: false },
+    );
+    assertEquals(denied.status, 403);
+    assert(denied.calls.every((call) => call.url.startsWith('https://supabase.test')));
   },
 );
