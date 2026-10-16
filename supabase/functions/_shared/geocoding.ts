@@ -17,7 +17,9 @@ export async function geocode(query: string, limit: number, upstream: Upstream) 
       throw new Error(
         'Location search needs an openrouteservice API key. Ask your administrator to configure it.',
       );
-    const url = new URL('https://api.heigit.org/openrouteservice/geocode/search');
+    // HeiGIT exposes geocoding under Pelias, separately from its routing service.
+    // https://ask.openrouteservice.org/t/7912
+    const url = new URL('https://api.heigit.org/pelias/v1/search');
     url.searchParams.set('text', query);
     url.searchParams.set('size', String(limit));
     // Keep credentials out of URLs, logs and the public client configuration.

@@ -72,7 +72,7 @@ async function scenario(body: object, options: Options = {}) {
     if (path === '/rest/v1/walking_distance_cache')
       return response(init?.method === 'POST' ? null : []);
     if (path === '/rest/v1/rpc/claim_walking_request') return response(true);
-    if (url.startsWith('https://api.heigit.org/openrouteservice/geocode/search')) {
+    if (url.startsWith('https://api.heigit.org/pelias/v1/search')) {
       if (options.locationStatus)
         return response({ error: 'Private upstream response' }, options.locationStatus);
       return response({
@@ -328,7 +328,7 @@ Deno.test(
       { label: 'Rudolfplatz 14, 50674 Köln, Germany', latitude: 50.936, longitude: 6.939 },
     ]);
     const request = result.calls.find((call) =>
-      call.url.startsWith('https://api.heigit.org/openrouteservice/geocode/search'),
+      call.url.startsWith('https://api.heigit.org/pelias/v1/search'),
     )!;
     assertEquals(request.authorization, 'geocoder-test-key');
     const url = new URL(request.url);
@@ -362,7 +362,7 @@ Deno.test(
       { geocoder: 'openrouteservice' },
     );
     assertEquals(legacy.status, 200);
-    const lookup = legacy.calls.find((call) => call.url.includes('/geocode/search'))!;
+    const lookup = legacy.calls.find((call) => call.url.includes('/pelias/v1/search'))!;
     assertEquals(new URL(lookup.url).searchParams.get('size'), '1');
     assert(
       new URLSearchParams(
