@@ -22,3 +22,4 @@ Then configure [sign-in](https://github.com/edriste/Forkcast/wiki/Authentication
 - [Troubleshooting](https://github.com/edriste/Forkcast/wiki/Troubleshooting)
 - [Architecture](https://github.com/edriste/Forkcast/wiki/Architecture)
 - [Source and development instructions](https://github.com/edriste/Forkcast)
+- [Licensing](https://github.com/edriste/Forkcast/wiki/Licensing)

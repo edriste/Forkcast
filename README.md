@@ -21,3 +21,7 @@ Forkcast is a self-hostable Expo/React Native app with an installable web app (P
 | Run or change the code locally | [Development](docs/development.md)                                                        |
 
 See the **[GitHub Wiki](https://github.com/edriste/Forkcast/wiki)** for authentication, location providers, notifications and maintenance. Wiki source files and publishing instructions are in [docs](docs/README.md).
+
+## License
+
+[MIT](LICENSE). Anyone can self-host, modify and redistribute Forkcast, including commercially, while retaining the license notice. Third-party components and external data keep their [own licenses](THIRD_PARTY_NOTICES.md).

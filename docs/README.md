@@ -9,7 +9,7 @@ Start with [Home](wiki/Home.md), or open:
 - [Using Forkcast](wiki/Using-Forkcast.md) and [phone installation](wiki/Install-on-your-phone.md)
 - [Cloudflare + Supabase](wiki/Cloudflare-and-Supabase.md) or [self-hosting](wiki/Self-hosting.md)
 - [Authentication](wiki/Authentication.md), [maps and location](wiki/Maps-and-location.md), and [device notifications](wiki/Device-notifications.md)
-- [Maintenance](wiki/Maintenance.md), [troubleshooting](wiki/Troubleshooting.md), and [architecture](wiki/Architecture.md)
+- [Maintenance](wiki/Maintenance.md), [troubleshooting](wiki/Troubleshooting.md), [architecture](wiki/Architecture.md), and [licensing](wiki/Licensing.md)
 
 ## Edit and publish
 

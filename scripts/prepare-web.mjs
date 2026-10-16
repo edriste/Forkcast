@@ -34,6 +34,8 @@ export function prepareWeb(directory = 'dist') {
   copyFileSync('assets/app-icon-512.png', resolve(output, 'icon-512.png'));
   copyFileSync('assets/app-icon-192.png', resolve(output, 'push-icon.png'));
   copyFileSync('public/_headers', resolve(output, '_headers'));
+  copyFileSync('LICENSE', resolve(output, 'LICENSE.txt'));
+  copyFileSync('THIRD_PARTY_NOTICES.md', resolve(output, 'THIRD_PARTY_NOTICES.md'));
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   prepareWeb(process.argv[2]);

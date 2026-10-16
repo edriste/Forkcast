@@ -5,7 +5,7 @@ COPY scripts/copy-map-worker.mjs scripts/copy-map-worker.mjs
 # Deno is a developer-only dependency whose installer does not support Alpine.
 # The web build needs only our asset-copy postinstall, not dependency install scripts.
 RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts && npm run postinstall
-COPY App.tsx app.config.ts index.ts tsconfig.json ./
+COPY App.tsx app.config.ts index.ts tsconfig.json LICENSE THIRD_PARTY_NOTICES.md ./
 COPY src src
 COPY assets assets
 COPY public public

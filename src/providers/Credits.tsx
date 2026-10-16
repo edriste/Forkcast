@@ -12,7 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocale } from './Locale';
 import { Button, Card, Notice, useAction, useTheme } from '../components/ui';
-import { cuisinePresetLicense } from '../lib/licenses';
+import { cuisinePresetLicense, forkcastLicense } from '../lib/licenses';
 const Context = createContext<() => void>(() => {});
 export const useCredits = () => useContext(Context);
 export function CreditsButton() {
@@ -27,6 +27,7 @@ export function CreditsProvider({ children }: React.PropsWithChildren) {
   const insets = useSafeAreaInsets();
   const padding = Math.max(insets.top, insets.bottom) + 16;
   const [open, setOpen] = useState(false);
+  const [showLicense, setShowLicense] = useState(false);
   const action = useAction();
   const close = () => setOpen(false);
   function link(label: string, url: string) {
@@ -128,6 +129,25 @@ export function CreditsProvider({ children }: React.PropsWithChildren) {
               style={{ flexShrink: 1 }}
               contentContainerStyle={{ gap: 12 }}
             >
+              <Card>
+                <Text style={styles.heading}>Forkcast</Text>
+                <Text style={styles.text}>
+                  {t(
+                    'Open source under the MIT License. You can self-host, modify and redistribute Forkcast, including commercially.',
+                  )}
+                </Text>
+                {link(t('Source code'), 'https://github.com/edriste/Forkcast')}
+                <Button
+                  secondary
+                  title={t(showLicense ? 'Hide MIT license' : 'View MIT license')}
+                  onPress={() => setShowLicense(!showLicense)}
+                />
+                {showLicense && (
+                  <Text selectable style={[styles.subtitle, { fontSize: 12 }]}>
+                    {forkcastLicense}
+                  </Text>
+                )}
+              </Card>
               <Card>
                 <Text style={styles.heading}>{t('Place and address data')}</Text>
                 <Text style={styles.text}>

@@ -18,3 +18,4 @@
 - [Updates and backups](https://github.com/edriste/Forkcast/wiki/Maintenance)
 - [Troubleshooting](https://github.com/edriste/Forkcast/wiki/Troubleshooting)
 - [Architecture](https://github.com/edriste/Forkcast/wiki/Architecture)
+- [Licensing](https://github.com/edriste/Forkcast/wiki/Licensing)

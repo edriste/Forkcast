@@ -950,5 +950,9 @@
   "Restaurant search is temporarily unavailable. Please try again later.": "Die Restaurantsuche ist vorübergehend nicht verfügbar. Bitte versuche es später erneut.",
   "Geoapify returned an incomplete restaurant response. Please try again later.": "Geoapify hat unvollständige Restaurantdaten geliefert. Bitte versuche es später erneut.",
   "Geoapify returned no supported OpenStreetMap restaurants. Ask your administrator to check the provider response.": "Geoapify hat keine unterstützten OpenStreetMap-Restaurants geliefert. Bitte die Administration, die Antwort des Anbieters zu prüfen.",
-  "The restaurant area is too large to load completely. Saved places have been kept.": "Das Suchgebiet ist zu groß, um es vollständig zu laden. Gespeicherte Orte wurden beibehalten."
+  "The restaurant area is too large to load completely. Saved places have been kept.": "Das Suchgebiet ist zu groß, um es vollständig zu laden. Gespeicherte Orte wurden beibehalten.",
+  "Open source under the MIT License. You can self-host, modify and redistribute Forkcast, including commercially.": "Open Source unter der MIT-Lizenz. Du kannst Forkcast selbst hosten, verändern und weitergeben, auch kommerziell.",
+  "Source code": "Quellcode",
+  "View MIT license": "MIT-Lizenz anzeigen",
+  "Hide MIT license": "MIT-Lizenz ausblenden"
 }
