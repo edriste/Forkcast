@@ -59,7 +59,7 @@
     "edge:check": "deno check supabase/functions/places/index.ts",
     "postinstall": "node scripts/copy-map-worker.mjs",
     "edge:test": "deno test --allow-env supabase/functions/places/index_test.ts supabase/functions/_shared/walking_test.ts",
-    "build:web": "expo export --platform web --output-dir dist && node scripts/prepare-web.mjs",
+    "build:web": "expo export --clear --platform web --output-dir dist && node scripts/prepare-web.mjs",
     "db:migrate": "node scripts/migrate.mjs"
   },
   "private": true,
