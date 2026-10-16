@@ -936,5 +936,9 @@
   "Up to three devices can receive push notifications. Remove a device first.": "Bis zu drei Geräte können Benachrichtigungen empfangen. Entferne zuerst ein Gerät.",
   "Cooking discussion reply": "Antwort beim gemeinsamen Kochen",
   "{name} replied in your cooking discussion.": "{name} hat in deiner Diskussion zum Kochen geantwortet.",
-  "On iPhone, add Forkcast to your Home Screen before enabling alerts.": "Füge Forkcast auf dem iPhone vor dem Aktivieren der Hinweise zum Home-Bildschirm hinzu."
+  "On iPhone, add Forkcast to your Home Screen before enabling alerts.": "Füge Forkcast auf dem iPhone vor dem Aktivieren der Hinweise zum Home-Bildschirm hinzu.",
+  "The location provider took too long to respond. Please wait one minute before trying again.": "Der Standortanbieter hat nicht rechtzeitig geantwortet. Warte bitte eine Minute, bevor du es erneut versuchst.",
+  "The location provider could not be reached or returned an invalid response. Please try again later.": "Der Standortanbieter war nicht erreichbar oder hat eine ungültige Antwort gesendet. Versuche es später erneut.",
+  "Restaurant search failed recently. Please wait one minute before trying again. If this continues, ask your administrator to check the places function logs.": "Die Restaurantsuche ist gerade fehlgeschlagen. Warte bitte eine Minute vor einem neuen Versuch. Falls das Problem weiterhin besteht, bitte deine Administration, die Protokolle der places-Funktion zu prüfen.",
+  "Restaurants in your area are being loaded. Please wait for the current search to finish.": "Restaurants in deinem Gebiet werden geladen. Warte bitte, bis die laufende Suche abgeschlossen ist."
 }

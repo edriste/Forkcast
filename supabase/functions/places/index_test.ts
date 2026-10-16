@@ -22,6 +22,9 @@ type Options = {
   stale?: boolean;
   gate?: boolean;
   unavailable?: boolean;
+  timeout?: boolean;
+  refreshPending?: boolean;
+  coolingDown?: boolean;
   partial?: boolean;
   details?: boolean;
   located?: boolean;
@@ -109,6 +112,13 @@ async function scenario(body: object, options: Options = {}) {
     }
     if (path === '/rest/v1/osm_region_cache') {
       if (init?.method === 'PATCH') return response({ organization_id: org });
+      if (options.coolingDown)
+        return response({
+          area_query: 'Berlin Mitte',
+          places: [],
+          refreshed_at: null,
+          retry_after: new Date(Date.now() + 60000).toISOString(),
+        });
       if (options.details)
         return response({
           places: [
@@ -129,7 +139,11 @@ async function scenario(body: object, options: Options = {}) {
       return response(null);
     }
     if (path === '/rest/v1/rpc/claim_osm_refresh')
-      return response('20000000-0000-0000-0000-000000000001');
+      return response(
+        options.refreshPending || options.coolingDown
+          ? null
+          : '20000000-0000-0000-0000-000000000001',
+      );
     if (path === '/rest/v1/rpc/claim_osm_request') return response(options.gate !== false);
     if (path === '/rest/v1/place_ratings')
       return response(options.reviewed ? [{ place_id: place.id }] : []);
@@ -170,6 +184,7 @@ async function scenario(body: object, options: Options = {}) {
       );
     }
     if (url.startsWith('https://overpass-api.de/')) {
+      if (options.timeout) throw new DOMException('Sensitive upstream URL', 'TimeoutError');
       if (options.unavailable) return response({ error: 'Busy' }, 429);
       if (options.partial) return response({ elements: [], remark: 'runtime error: timeout' });
       if (options.emptyElements) return response({ elements: [] });
@@ -259,6 +274,47 @@ Deno.test('a denied global gate prevents upstream calls', async () => {
   assertEquals(result.status, 502);
   assert(result.calls.every((call) => call.url.startsWith('https://supabase.test')));
 });
+Deno.test(
+  'first-load cooldown and concurrent refresh explain the wait without repeating provider calls',
+  async () => {
+    for (const coolingDown of [false, true]) {
+      const result = await scenario(
+        { action: 'search', query: 'Miso' },
+        { refreshPending: true, coolingDown },
+      );
+      assertEquals(result.status, 502);
+      assert(result.data.error.includes(coolingDown ? 'failed recently' : 'current search'));
+      assert(result.calls.every((call) => call.url.startsWith('https://supabase.test')));
+    }
+  },
+);
+Deno.test(
+  'restaurant timeouts release the lease with a cooldown, preserve cached data and hide upstream details',
+  async () => {
+    for (const stale of [false, true]) {
+      const result = await scenario(
+        { action: 'search', query: 'Miso' },
+        { timeout: true, located: true, stale },
+      );
+      assertEquals(result.status, stale ? 200 : 502);
+      assert((stale ? result.data.warning : result.data.error).includes('took too long'));
+      assert(!JSON.stringify(result.data).includes('Sensitive upstream URL'));
+      const cleanup = result.calls.find(
+        (call) => call.method === 'PATCH' && call.url.includes('/osm_region_cache'),
+      )!;
+      const update = JSON.parse(cleanup.body!);
+      assertEquals(update.lease_until, null);
+      assertEquals(update.lease_token, null);
+      assert(Date.parse(update.retry_after) > Date.now());
+      assert(
+        !result.calls.some(
+          (call) => call.method === 'POST' && call.url.includes('/rest/v1/places'),
+        ),
+      );
+      if (stale) assertEquals(result.data.places[0].id, place.id);
+    }
+  },
+);
 Deno.test(
   'details expose only selected-group reviews or its cached search selections',
   async () => {

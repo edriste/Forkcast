@@ -31,6 +31,8 @@ type Region = {
   longitude: number | null;
   places: Place[];
   refreshed_at: string | null;
+  lease_until?: string | null;
+  retry_after?: string | null;
 };
 async function loadCuisineOverrides(client: SupabaseClient, org: string, ids?: string[]) {
   const overrides = new Map<string, CuisineOverride>();
@@ -51,11 +53,35 @@ async function loadCuisineOverrides(client: SupabaseClient, org: string, ids?: s
   return overrides;
 }
 async function upstream(url: string, options: RequestInit = {}) {
-  const response = await fetch(url, {
-    ...options,
-    signal: AbortSignal.timeout(40000),
-    headers: { ...options.headers, 'User-Agent': userAgent, Accept: 'application/json' },
-  });
+  const host = new URL(url).hostname;
+  const startedAt = Date.now();
+  console.info('OSM upstream request started', { host });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      signal: AbortSignal.timeout(40000),
+      headers: { ...options.headers, 'User-Agent': userAgent, Accept: 'application/json' },
+    });
+    // Reading the body can also time out after the server sends its headers.
+    if (response.ok) {
+      const data = await response.json();
+      console.info('OSM upstream request completed', { host, elapsedMs: Date.now() - startedAt });
+      return data;
+    }
+  } catch (error) {
+    const timedOut = error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name);
+    console.warn('OSM upstream connection failed', {
+      host,
+      elapsedMs: Date.now() - startedAt,
+      reason: timedOut ? 'timeout' : 'connection or invalid response',
+    });
+    throw new Error(
+      timedOut
+        ? 'The location provider took too long to respond. Please wait one minute before trying again.'
+        : 'The location provider could not be reached or returned an invalid response. Please try again later.',
+    );
+  }
   if (!response.ok) {
     // Record enough to diagnose shared-host blocks/rate limits without logging
     // address queries, URL credentials, request headers or upstream HTML bodies.
@@ -82,7 +108,6 @@ async function upstream(url: string, options: RequestInit = {}) {
       throw new Error('OpenStreetMap lookup is rate limited. Please wait before trying again.');
     throw new Error('OpenStreetMap lookup is busy or unavailable. Please try again later.');
   }
-  return response.json();
 }
 async function getRegion(
   client: SupabaseClient,
@@ -91,7 +116,7 @@ async function getRegion(
 ) {
   const cached = await client
     .from('osm_region_cache')
-    .select('area_query,latitude,longitude,places,refreshed_at')
+    .select('area_query,latitude,longitude,places,refreshed_at,lease_until,retry_after')
     .eq('organization_id', org.id)
     .maybeSingle();
   if (cached.error) throw cached.error;
@@ -105,12 +130,20 @@ async function getRegion(
   const lease = await admin.rpc('claim_osm_refresh', { org: org.id, area: org.search_area });
   if (lease.error) throw lease.error;
   if (!lease.data) {
+    const coolingDown = !!previous?.retry_after && Date.parse(previous.retry_after) > Date.now();
+    console.info('OSM area refresh deferred', {
+      reason: coolingDown ? 'retry cooldown' : 'refresh in progress or cache updated',
+    });
     if (reusable?.refreshed_at)
       return {
         region: reusable,
         warning: 'Showing saved OSM data while the area refresh is pending. Try again later.',
       };
-    throw new Error('Your area is being loaded or is waiting to retry. Please try again shortly.');
+    throw new Error(
+      coolingDown
+        ? 'Restaurant search failed recently. Please wait one minute before trying again. If this continues, ask your administrator to check the places function logs.'
+        : 'Restaurants in your area are being loaded. Please wait for the current search to finish.',
+    );
   }
   try {
     let latitude = org.latitude ?? reusable?.latitude;
@@ -142,7 +175,7 @@ async function getRegion(
     if (gate.error || !gate.data)
       throw new Error('Restaurant lookup is busy. Please try again later.');
     const around = `around:${OSM_RADIUS_METERS},${latitude},${longitude}`;
-    const query = `[out:json][timeout:25][maxsize:16777216];(nwr(${around})["amenity"~"^(restaurant|cafe|fast_food|food_court)$"];nwr(${around})["shop"="bakery"];);out center tags;`;
+    const query = `[out:json][timeout:25][maxsize:16777216];(nwr["amenity"~"^(restaurant|cafe|fast_food|food_court)$"]["name"](${around});nwr["shop"="bakery"]["name"](${around}););out center tags;`;
     const data = await upstream(
       Deno.env.get('OSM_OVERPASS_URL') ?? 'https://overpass-api.de/api/interpreter',
       {
@@ -152,8 +185,17 @@ async function getRegion(
       },
     );
     // Overpass can report failures inside an HTTP 200 response. Never replace good data with a partial result.
-    if (!Array.isArray(data.elements) || data.remark)
+    if (!Array.isArray(data.elements) || data.remark) {
+      console.warn('OSM restaurant response incomplete', {
+        host: new URL(Deno.env.get('OSM_OVERPASS_URL') ?? 'https://overpass-api.de/api/interpreter')
+          .hostname,
+        reason:
+          typeof data.remark === 'string' && /timed?\s*out|timeout/i.test(data.remark)
+            ? 'timeout'
+            : 'incomplete response',
+      });
       throw new Error('Restaurant lookup did not complete. Please try again later.');
+    }
     const refreshedAt = new Date().toISOString();
     const places = [
       ...new Map(
