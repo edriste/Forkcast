@@ -327,6 +327,8 @@
   "Location lookup is busy. Please try again shortly.": "Die Standortsuche ist ausgelastet. Versuche es gleich erneut.",
   "Enter an address between 3 and 160 characters.": "Gib eine Adresse mit 3 bis 160 Zeichen ein.",
   "OpenStreetMap lookup is busy or unavailable. Please try again later.": "Die OpenStreetMap-Suche ist ausgelastet oder nicht verfügbar. Versuche es später erneut.",
+  "OpenStreetMap lookup was denied. Ask your administrator to check the location provider settings.": "Die OpenStreetMap-Abfrage wurde abgelehnt. Bitte deine Administration, die Einstellungen des Standortanbieters zu prüfen.",
+  "OpenStreetMap lookup is rate limited. Please wait before trying again.": "Die OpenStreetMap-Suche hat ihr Anfragelimit erreicht. Warte bitte, bevor du es erneut versuchst.",
   "Area lookup is busy. Please try again later.": "Die Gebietssuche ist ausgelastet. Versuche es später erneut.",
   "Restaurant lookup is busy. Please try again later.": "Die Restaurantsuche ist ausgelastet. Versuche es später erneut.",
   "Restaurant lookup did not complete. Please try again later.": "Die Restaurantsuche wurde nicht abgeschlossen. Versuche es später erneut.",

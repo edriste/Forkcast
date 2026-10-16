@@ -27,6 +27,7 @@ type Options = {
   located?: boolean;
   locationCache?: boolean;
   emptyLocations?: boolean;
+  locationStatus?: number;
   cuisines?: boolean;
   detailsStale?: boolean;
   reviewed?: boolean;
@@ -127,12 +128,15 @@ async function scenario(body: object, options: Options = {}) {
           ? [{ id: place.id, provider: 'osm', metadata: place, refreshed_at: place.updatedAt }]
           : [],
       );
-    if (url.startsWith('https://nominatim.openstreetmap.org/'))
+    if (url.startsWith('https://nominatim.openstreetmap.org/')) {
+      if (options.locationStatus)
+        return response({ error: 'Private upstream response' }, options.locationStatus);
       return response(
         options.emptyLocations
           ? []
           : [{ display_name: 'Berlin Mitte, Germany', lat: '52.52', lon: '13.4' }],
       );
+    }
     if (url.startsWith('https://overpass-api.de/')) {
       if (options.unavailable) return response({ error: 'Busy' }, 429);
       if (options.partial) return response({ elements: [], remark: 'runtime error: timeout' });
@@ -276,6 +280,43 @@ Deno.test('office lookup enforces the shared Nominatim gate and validates querie
   assertEquals(empty.status, 200);
   assertEquals(empty.data.locations, []);
 });
+Deno.test(
+  'office lookup distinguishes provider denial, rate limits and outages without leaking addresses',
+  async () => {
+    const original = console.warn;
+    const logs: unknown[][] = [];
+    console.warn = (...args: unknown[]) => {
+      logs.push(args);
+    };
+    try {
+      for (const status of [401, 403, 429, 503]) {
+        const result = await scenario(
+          { action: 'locations', query: 'Private office address' },
+          { locationStatus: status },
+        );
+        assertEquals(result.status, 502);
+        assert(
+          result.data.error.includes(
+            status === 429 ? 'rate limited' : status === 503 ? 'busy or unavailable' : 'was denied',
+          ),
+        );
+        assert(!JSON.stringify(result.data).includes('Private upstream response'));
+        assert(
+          !result.calls.some(
+            (call) => call.url.includes('/osm_location_cache') && call.method === 'POST',
+          ),
+        );
+        assertEquals(logs.at(-1), [
+          'OSM upstream request failed',
+          { host: 'nominatim.openstreetmap.org', status },
+        ]);
+      }
+      assert(!JSON.stringify(logs).includes('Private office address'));
+    } finally {
+      console.warn = original;
+    }
+  },
+);
 Deno.test(
   'restaurant search uses the chosen office coordinates without geocoding its label',
   async () => {

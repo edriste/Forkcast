@@ -56,8 +56,21 @@ async function upstream(url: string, options: RequestInit = {}) {
     signal: AbortSignal.timeout(40000),
     headers: { ...options.headers, 'User-Agent': userAgent, Accept: 'application/json' },
   });
-  if (!response.ok)
+  if (!response.ok) {
+    // Record enough to diagnose shared-host blocks/rate limits without logging
+    // address queries, URL credentials, request headers or upstream HTML bodies.
+    console.warn('OSM upstream request failed', {
+      host: new URL(url).hostname,
+      status: response.status,
+    });
+    if (response.status === 401 || response.status === 403)
+      throw new Error(
+        'OpenStreetMap lookup was denied. Ask your administrator to check the location provider settings.',
+      );
+    if (response.status === 429)
+      throw new Error('OpenStreetMap lookup is rate limited. Please wait before trying again.');
     throw new Error('OpenStreetMap lookup is busy or unavailable. Please try again later.');
+  }
   return response.json();
 }
 async function getRegion(
