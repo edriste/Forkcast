@@ -71,7 +71,12 @@ export async function addWalkingDistances(admin: SupabaseClient, org: Origin, in
     }
     if (!missing.length) return { places, warning: '' };
     const key = Deno.env.get('OPENROUTESERVICE_API_KEY');
-    if (!key)
+    const customEndpoint = Deno.env.get('OPENROUTESERVICE_MATRIX_URL');
+    const endpoint =
+      customEndpoint || 'https://api.heigit.org/openrouteservice/v2/matrix/foot-walking';
+    if (!['https:', 'http:'].includes(new URL(endpoint).protocol))
+      throw new Error('Invalid routing endpoint');
+    if (!key && !customEndpoint)
       return {
         places,
         warning:
@@ -80,10 +85,10 @@ export async function addWalkingDistances(admin: SupabaseClient, org: Origin, in
     const gate = await admin.rpc('claim_walking_request');
     if (gate.error) throw gate.error;
     if (!gate.data) return { places, warning: fallback };
-    const response = await fetch('https://api.heigit.org/openrouteservice/v2/matrix/foot-walking', {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
-        Authorization: key,
+        ...(key ? { Authorization: key } : {}),
         'Content-Type': 'application/json',
         Accept: 'application/json',
       },

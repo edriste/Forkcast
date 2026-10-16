@@ -1,13 +1,17 @@
 # Forkcast
 
-An Expo/React Native app for private colleague lunch recommendations and shared office cooking. The app uses **OpenStreetMap restaurant data, MapLibre maps and OpenFreeMap tiles**. Maps require no Google API key or map-provider billing account. Google login uses separate OAuth credentials.
+A self-hostable Expo/React Native app for private colleague lunch recommendations and shared office cooking. The app uses **OpenStreetMap restaurant data, MapLibre maps and OpenFreeMap tiles**. Maps require no Google API key or map-provider billing account. Google login uses separate OAuth credentials.
 
 The MVP includes Google signup/login with email/password as a fallback, multiple organizations, invite codes/links, restaurant search and historical reviews, organization-specific ratings and map filters, cooking events, safe portion reservations, private images and PayPal.me payments. The app contains no mock data or demo login.
 
-## Requirements and first run
+## Self-hosted deployment
+
+The primary deployment path runs Forkcast and Supabase on your own server with persistent Docker services. See **[Self-hosting Forkcast](docs/self-hosting.md)** for the web image, runtime configuration, backend/SMTP/OAuth setup, migrations, HTTPS, backups and upgrades. No Supabase Cloud or EAS account is required. Public OSM/map/routing providers remain configurable external dependencies by default.
+
+## Development requirements and first run
 
 - Node 22.14 or newer, npm.
-- Supabase: either a hosted project or local Supabase CLI with Docker.
+- Supabase CLI with Docker for local development; use the self-hosting guide for a persistent deployment.
 - For native builds: Android Studio/emulator or Xcode/macOS for iOS.
 
 ```sh
@@ -35,7 +39,9 @@ Apply `202610120015_daily_lunch.sql` and `202610120016_lunch_not_in_office.sql` 
 
 **Cooking discussions**: open any cooking event and use **Questions & comments** to ask about ingredients, portions or payment. All current organization members can read and reply, even without a reservation or after signup closes. Authors can edit or delete their own comments; deletion asks for confirmation. The latest 20 comments appear in chronological order, with **Show earlier comments** for longer threads. Replies refresh automatically and preserve unfinished drafts. English and German follow system settings. Apply `202610140040_cooking_comments.sql` to hosted Supabase projects; it has already been applied locally.
 
-**Notifications**: a header bell shows the unread count for your current organization. Open it for new cooking invitations, outstanding lunch payments and organizers’ payment updates. Invitations link to the lunch or reserve one portion with **Join · 1 portion**; opening the lunch lets you adjust portions or leave. Dismissing an invitation hides the notification without changing a reservation. Payment reminders cannot be dismissed or marked as read, including by **Mark all as read**. They keep the alert marker until payment is marked or you leave; they link to the existing PayPal/payment screen. Organizers see payment amounts, self-reported paid status and their confirmations. They receive signup alerts when colleagues join; participants receive a notification when the organizer confirms payment. Read/dismissed states persist on the server for other notifications. The inbox updates from private live signals, on foregrounding, when opened, and after participation/payment changes. These are in-app notifications; background device push is not configured. Apply migrations `202610120017_notifications.sql`, `202610120018_persistent_payment_reminders.sql` and `202610130030_unread_payment_reminders.sql` to hosted Supabase projects. Previously dismissed/read unpaid reminders are restored by the latter migrations.
+**Optional device notifications**: Web Push can alert opted-in browsers/Home Screen apps while Forkcast is closed. Defaults are a shared three-update daily cap, 22:00–08:00 quiet hours, five-minute grouping and active-app suppression. Payment reminders and organizer activity start disabled. See [device notification setup and delivery rules](docs/device-notifications.md) for the self-hosted background worker, VAPID keys and user controls.
+
+**Notifications**: a header bell shows the unread count for your current organization. Open it for new cooking invitations, outstanding lunch payments and organizers’ payment updates. Invitations link to the lunch or reserve one portion with **Join · 1 portion**; opening the lunch lets you adjust portions or leave. Dismissing an invitation hides the notification without changing a reservation. Payment reminders cannot be dismissed or marked as read, including by **Mark all as read**. They keep the alert marker until payment is marked or you leave; they link to the existing PayPal/payment screen. Organizers see payment amounts, self-reported paid status and their confirmations. They receive signup alerts when colleagues join; participants receive a notification when the organizer confirms payment. Read/dismissed states persist on the server for other notifications. The inbox updates from private live signals, on foregrounding, when opened, and after participation/payment changes. These notifications always remain in the in-app inbox; optional Web Push uses the separate setup above. Apply migrations `202610120017_notifications.sql`, `202610120018_persistent_payment_reminders.sql` and `202610130030_unread_payment_reminders.sql` to hosted Supabase projects. Previously dismissed/read unpaid reminders are restored by the latter migrations.
 
 The organization name appears once in the top header on Overview, Places and Cooking. Tap its dropdown arrow to switch between your memberships; the picker marks the active organization and offers **Manage organizations** for joining or creating groups. Switching preserves the selected tab, reloads data for the new group and remembers that group across app restarts. Closing the picker or choosing the current organization preserves the current filters. The picker opens centered on the screen, with a scrollable list sized for the viewport and safe areas. It supports German, dark mode and narrow screens.
 
@@ -118,7 +124,7 @@ npx expo run:ios
 
 An existing Google-based native build must be rebuilt after this change. Restart Expo after changing `.env`. Web, iOS and Android now all have an interactive reviewed-place map. If tiles/WebGL are unavailable, the reviewed-place list remains usable.
 
-## Hosted Supabase
+## Optional Supabase Cloud deployment
 
 With the [Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started):
 
@@ -200,7 +206,7 @@ npx supabase start
 npx supabase migration up --local
 ```
 
-The checked-in Google provider is disabled until credentials are supplied, so email development remains usable. For mobile testing, a hosted Supabase backend is simplest; a local backend must have a browser-reachable callback/API address (Android's emulator alias alone is not a Google callback URL).
+The checked-in Google provider is disabled until credentials are supplied, so email development remains usable. For mobile testing, use a backend reachable by the device; a local backend must have a browser-reachable callback/API address (Android's emulator alias alone is not a Google callback URL).
 
 OAuth uses PKCE. Web returns to the app's current path; installed apps return to `forkcast://auth`. The app exchanges the one-time code, persists the session, removes callback parameters from the browser URL and preserves pending invites across browser navigation. Cancellation or failed exchanges show a retryable error. Google login does not grant organization membership based on email domain.
 
@@ -244,7 +250,7 @@ FORKCAST_TEST_DATABASE_URL=postgres://postgres:forkcast-test-only@127.0.0.1:5543
 docker stop forkcast-test-db
 ```
 
-See [decisions](docs/decisions.md) and [verification](docs/verification.md). Optional AI macros, background push and automatic payment verification remain deferred.
+See [decisions](docs/decisions.md) and [verification](docs/verification.md). Optional AI macros, native APNs/FCM SDK integration and automatic payment verification remain deferred.
 
 ## OSM edits and saved-place freshness
 
@@ -288,4 +294,4 @@ Shared office orders: apply `202610140036_office_orders.sql`, `202610140037_orde
 
 The organizer closes edits, uses the grouped checklist/copy action to place the purchase externally, then records the final delivery fee and optional arrival time and marks it placed. Identical choices combine only when prices and requests match; names and requested quantities remain in the copied order. Fees split equally per participant, with leftover cents assigned deterministically so every cent is accounted for. Payment amounts and items freeze on placement; the organizer's own share is settled automatically. Participants can open the payment link and self-report payment; the organizer can confirm it, clearing the persistent unpaid alert and notifying the participant. Arrival is announced manually. Changing the deadline/reopening and cancelling before placement are supported; placed orders cannot be cancelled in the app.
 
-Order creation, scheduled ten-minute reminders for unready participants, placement, arrival and payment updates appear in the private in-app inbox. Scheduled reminders update the header through a deadline timer; they also appear on reopening the app. Background push and provider checkout integration are not part of this feature. Existing automatic refresh signals update the shared sheet. Other-device changes preserve unsaved drafts and their original revision; conflicts offer an explicit **Load latest order** confirmation instead of overwriting newer choices. Source menu prices and final fees are entered manually; no delivery-provider API/account integration is required.
+Order creation, scheduled ten-minute reminders for unready participants, placement, arrival and payment updates appear in the private in-app inbox. Scheduled reminders update the header through a deadline timer; they also appear on reopening the app. Optional Web Push can deliver selected updates under the limits described above; provider checkout remains external. Existing automatic refresh signals update the shared sheet. Other-device changes preserve unsaved drafts and their original revision; conflicts offer an explicit **Load latest order** confirmation instead of overwriting newer choices. Source menu prices and final fees are entered manually; no delivery-provider API/account integration is required.

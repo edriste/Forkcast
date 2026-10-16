@@ -1,14 +1,11 @@
+import { publicConfig } from '../lib/config';
 import { useEffect, useState } from 'react';
 import type { StyleSpecification } from 'maplibre-gl';
 import { message } from '../lib/supabase';
 import { useTheme } from '../providers/Theme';
 export function useMapStyle() {
   const { dark } = useTheme();
-  const url = dark
-    ? (process.env.EXPO_PUBLIC_OSM_DARK_MAP_STYLE_URL ??
-      'https://tiles.openfreemap.org/styles/dark')
-    : (process.env.EXPO_PUBLIC_OSM_MAP_STYLE_URL ??
-      'https://tiles.openfreemap.org/styles/positron');
+  const url = dark ? publicConfig.darkMapStyleUrl : publicConfig.mapStyleUrl;
   const [style, setStyle] = useState<StyleSpecification | null>(null);
   const [error, setError] = useState('');
   useEffect(() => {

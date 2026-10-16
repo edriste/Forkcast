@@ -1,0 +1,15 @@
+name: forkcast-push
+services:
+  push:
+    image: forkcast-push:local
+    build:
+      context: ..
+      dockerfile: deploy/push/Dockerfile
+    restart: unless-stopped
+    env_file: ./push.env
+    networks:
+      - supabase
+networks:
+  supabase:
+    external: true
+    name: ${FORKCAST_SUPABASE_NETWORK:-supabase_default}

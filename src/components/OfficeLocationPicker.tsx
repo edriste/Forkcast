@@ -1,3 +1,4 @@
+import { compactLocationLabel } from '../../supabase/functions/_shared/location';
 import { useLocale } from '../providers/Locale';
 import React, { useRef, useState } from 'react';
 import { Text } from 'react-native';
@@ -71,7 +72,7 @@ export function OfficeLocationPicker({
           key={`${location.latitude}:${location.longitude}:${index}`}
           secondary
           disabled={disabled}
-          title={t('Select {0}', { 0: location.label })}
+          title={t('Select {0}', { 0: compactLocationLabel(location.label) })}
           onPress={() => {
             onChange(location);
             setMatches([]);
@@ -82,7 +83,7 @@ export function OfficeLocationPicker({
       {value ? (
         <>
           <Text style={styles.text}>
-            {t('Selected location:')} {value.label}
+            {t('Selected location:')} {compactLocationLabel(value.label)}
           </Text>
           <Text style={styles.subtitle}>
             {t(

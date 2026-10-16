@@ -183,43 +183,47 @@ export function NotificationBell({
                   <Card key={item.id}>
                     <Text style={styles.badge}>
                       {t(
-                        item.kind === 'cooking_scheduled'
-                          ? 'New office cooking'
-                          : item.kind === 'payment_due'
-                            ? 'Payment reminder'
-                            : item.kind === 'payment_confirmed'
-                              ? 'Payment confirmed'
-                              : item.kind === 'cooking_joined'
-                                ? 'New signup'
-                                : 'Payment update',
+                        item.kind === 'cooking_reply'
+                          ? 'Cooking discussion reply'
+                          : item.kind === 'cooking_scheduled'
+                            ? 'New office cooking'
+                            : item.kind === 'payment_due'
+                              ? 'Payment reminder'
+                              : item.kind === 'payment_confirmed'
+                                ? 'Payment confirmed'
+                                : item.kind === 'cooking_joined'
+                                  ? 'New signup'
+                                  : 'Payment update',
                       )}
                       {!item.read_at ? ` · ${t('Unread')}` : ''}
                     </Text>
                     <Text style={styles.heading}>{item.title ?? t('Office lunch')}</Text>
                     <Text style={styles.subtitle}>{displayDate(item.meal_date)}</Text>
                     <Text style={styles.text}>
-                      {item.kind === 'cooking_scheduled'
-                        ? t('{name} scheduled an office lunch.', { name: item.actor_name })
-                        : item.kind === 'payment_due'
-                          ? t('You haven’t marked {amount} as paid for this lunch.', {
-                              amount: money((item.portions ?? 0) * item.price_cents),
-                            })
-                          : item.kind === 'payment_confirmed'
-                            ? t('{name} confirmed your {amount} payment.', {
-                                name: item.actor_name,
+                      {item.kind === 'cooking_reply'
+                        ? t('{name} replied in your cooking discussion.', { name: item.actor_name })
+                        : item.kind === 'cooking_scheduled'
+                          ? t('{name} scheduled an office lunch.', { name: item.actor_name })
+                          : item.kind === 'payment_due'
+                            ? t('You haven’t marked {amount} as paid for this lunch.', {
                                 amount: money((item.portions ?? 0) * item.price_cents),
                               })
-                            : item.kind === 'cooking_joined'
-                              ? t(
-                                  item.portions === 1
-                                    ? '{name} joined your lunch · 1 portion.'
-                                    : '{name} joined your lunch · {count} portions.',
-                                  { name: item.actor_name, count: item.portions ?? 0 },
-                                )
-                              : t('{name} marked {amount} as paid (self-reported).', {
+                            : item.kind === 'payment_confirmed'
+                              ? t('{name} confirmed your {amount} payment.', {
                                   name: item.actor_name,
                                   amount: money((item.portions ?? 0) * item.price_cents),
-                                })}
+                                })
+                              : item.kind === 'cooking_joined'
+                                ? t(
+                                    item.portions === 1
+                                      ? '{name} joined your lunch · 1 portion.'
+                                      : '{name} joined your lunch · {count} portions.',
+                                    { name: item.actor_name, count: item.portions ?? 0 },
+                                  )
+                                : t('{name} marked {amount} as paid (self-reported).', {
+                                    name: item.actor_name,
+                                    amount: money((item.portions ?? 0) * item.price_cents),
+                                  })}
                     </Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                       <View style={{ flex: 1 }}>

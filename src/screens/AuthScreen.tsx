@@ -1,3 +1,4 @@
+import { publicConfig } from '../lib/config';
 import { useLocale } from '../providers/Locale';
 import React, { useState } from 'react';
 import { Linking, Text, View } from 'react-native';
@@ -64,7 +65,7 @@ export function AuthScreen() {
         </Text>
       </View>
       <Card>
-        {!verify && (
+        {!verify && publicConfig.googleAuthEnabled && (
           <>
             <Button
               title={t('Continue with Google')}
@@ -165,8 +166,8 @@ export function AuthScreen() {
         {t('Private to your team. Lunch ratings from people you know.')}
       </Text>
       {[
-        [t('Terms of use'), process.env.EXPO_PUBLIC_TERMS_URL],
-        [t('Privacy policy'), process.env.EXPO_PUBLIC_PRIVACY_URL],
+        [t('Terms of use'), publicConfig.termsUrl],
+        [t('Privacy policy'), publicConfig.privacyUrl],
       ].map(([label, url]) =>
         url ? (
           <Button

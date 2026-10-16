@@ -1,3 +1,7 @@
+import { disableDevicePush } from '../lib/push';
+import { DevicePushSettings } from '../components/DevicePushSettings';
+import { officeAddressDisplay } from '../../supabase/functions/_shared/location';
+import { publicConfig } from '../lib/config';
 import { useCredits } from '../providers/Credits';
 import { useLocale } from '../providers/Locale';
 import React, { useEffect, useState } from 'react';
@@ -102,7 +106,7 @@ export function OrganizationScreen() {
             <View style={{ flex: 1, gap: 4 }}>
               <Text style={styles.heading}>{orgs.current.name}</Text>
               <Text style={styles.subtitle}>
-                {orgs.current.location_label ?? orgs.current.search_area}
+                {officeAddressDisplay(orgs.current.location_label ?? orgs.current.search_area)}
               </Text>
             </View>
           </View>
@@ -300,6 +304,9 @@ export function OrganizationScreen() {
       </Card>
       <Card>
         <Text style={styles.heading}>{t('Your account')}</Text>
+        <OrganizationSection title={t('Device notifications')} icon="notifications-outline">
+          <DevicePushSettings />
+        </OrganizationSection>
         <Text style={styles.subtitle}>
           {t('Signed in as')} {session.user.email}
         </Text>
@@ -313,8 +320,8 @@ export function OrganizationScreen() {
             <Text style={[styles.text, { color: colors.accent }]}>{t('Credits & licenses')}</Text>
           </Pressable>
           {[
-            [t('Terms of use'), process.env.EXPO_PUBLIC_TERMS_URL],
-            [t('Privacy policy'), process.env.EXPO_PUBLIC_PRIVACY_URL],
+            [t('Terms of use'), publicConfig.termsUrl],
+            [t('Privacy policy'), publicConfig.privacyUrl],
           ].map(([label, url]) =>
             url ? (
               <Pressable
@@ -339,6 +346,7 @@ export function OrganizationScreen() {
           busy={action.busy}
           onPress={() =>
             action.run(async () => {
+              await disableDevicePush().catch(() => {});
               const { error } = await supabase.auth.signOut();
               if (error) throw error;
             })

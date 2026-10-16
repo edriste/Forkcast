@@ -1,3 +1,4 @@
+import { unsubscribeBrowserPush } from '../lib/push';
 import { useLocale } from '../providers/Locale';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
@@ -52,7 +53,8 @@ export function AuthProvider({
           setLoading(false);
         }
       });
-    const { data } = supabase.auth.onAuthStateChange((_event, next) => {
+    const { data } = supabase.auth.onAuthStateChange((event, next) => {
+      if (event === 'SIGNED_OUT') void unsubscribeBrowserPush().catch(() => {});
       if (active) {
         setSession(next);
         setLoading(false);
@@ -71,7 +73,7 @@ export function AuthProvider({
         <Text style={styles.subtitle}>{t('Good lunch starts with good company.')}</Text>
         <Text style={styles.text}>
           {t(
-            'Configure EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY in .env, apply the migrations, then restart Expo. See README.md for setup.',
+            'This installation is not configured. Ask your administrator to check the server settings.',
           )}
         </Text>
       </Page>

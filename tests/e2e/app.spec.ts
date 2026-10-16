@@ -138,6 +138,7 @@ async function backend(
     orderStatus?: 'open' | 'closed' | 'placed' | 'arrived';
     orderDeadline?: string;
     office?: boolean;
+    officeLabel?: string;
     walking?: number | null;
     organizationRole?: 'admin' | 'member';
     differentCreator?: boolean;
@@ -163,12 +164,29 @@ async function backend(
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   let group = options.group ?? true;
+  let pushPreferences = {
+    enabled: false,
+    locale: 'en',
+    timezone: 'Europe/Berlin',
+    quiet_start: 22,
+    quiet_end: 8,
+    daily_limit: 3,
+    cooking: true,
+    deadlines: true,
+    arrivals: true,
+    replies: true,
+    payments: false,
+    organizer: false,
+  };
+  let pushEndpoints: string[] = [];
+
   let groupRecord = {
     ...org,
     created_by: options.differentCreator ? '00000000-0000-0000-0000-000000000002' : userId,
     latitude: (options.office ? 52.52 : null) as number | null,
     longitude: (options.office ? 13.39 : null) as number | null,
-    location_label: (options.office ? 'Berlin office' : null) as string | null,
+    location_label: (options.office ? (options.officeLabel ?? 'Berlin office') : null) as
+      string | null,
   };
   const organizationMembers = [
     {
@@ -773,7 +791,22 @@ async function backend(
         profiles: { id: userId, display_name: 'Alice' },
       });
       result = 'review-one';
-    } else if (url.pathname === '/rest/v1/rpc/create_cooking_event') {
+    } else if (url.pathname === '/rest/v1/rpc/web_push_settings') {
+      result = { preferences: pushPreferences, endpoints: pushEndpoints };
+    } else if (url.pathname === '/rest/v1/rpc/register_web_push') {
+      pushEndpoints = [route.request().postDataJSON().device_endpoint];
+      pushPreferences.enabled = true;
+      result = null;
+    } else if (url.pathname === '/rest/v1/rpc/set_web_push_preferences') {
+      pushPreferences = route.request().postDataJSON().settings;
+      result = null;
+    } else if (url.pathname === '/rest/v1/rpc/unregister_web_push') {
+      const endpoint = route.request().postDataJSON().device_endpoint;
+      pushEndpoints = endpoint ? pushEndpoints.filter((item) => item !== endpoint) : [];
+      if (!pushEndpoints.length) pushPreferences.enabled = false;
+      result = null;
+    } else if (url.pathname === '/rest/v1/rpc/touch_web_push') result = null;
+    else if (url.pathname === '/rest/v1/rpc/create_cooking_event') {
       const body = route.request().postDataJSON();
       meal = {
         id: eventId,
@@ -837,7 +870,8 @@ async function backend(
         (c) => c.id !== route.request().postDataJSON().comment_id,
       );
       result = null;
-    } else if (url.pathname === '/rest/v1/event_images') result = [];
+    } else if (url.pathname === '/rest/v1/rpc/mark_cooking_comments_seen') result = null;
+    else if (url.pathname === '/rest/v1/event_images') result = [];
     else if (url.pathname === '/rest/v1/rpc/set_portions') {
       const quantity = route.request().postDataJSON().quantity;
       const wasJoined = !!participants.length;
@@ -4094,4 +4128,207 @@ test('unreachable walking routes are shown and excluded from distance-limited re
   await page.getByRole('radio', { name: 'Within 2 km', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Read reviews', exact: true })).toHaveCount(0);
   expect(errors).toEqual([]);
+});
+
+test('self-hosted runtime settings select the public key and can disable Google sign-in', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    globalThis.__FORKCAST_CONFIG__ = {
+      EXPO_PUBLIC_SUPABASE_URL: 'https://forkcast-test.supabase.co',
+      EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_runtime_test',
+      EXPO_PUBLIC_GOOGLE_AUTH_ENABLED: 'false',
+    };
+  });
+  const errors = await backend(page);
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Continue with Google', exact: true })).toHaveCount(
+    0,
+  );
+  await page.getByLabel('Email', { exact: true }).fill('alice@example.test');
+  await page.getByLabel('Password', { exact: true }).fill('password123');
+  const login = page.waitForRequest('**/auth/v1/token*');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  expect((await login).headers().apikey).toBe('sb_publishable_runtime_test');
+  await expect(page.getByRole('tab', { name: /Overview/ })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('self-hosted runtime configuration rejects server secrets before authentication', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    globalThis.__FORKCAST_CONFIG__ = {
+      EXPO_PUBLIC_SUPABASE_URL: 'https://forkcast-test.supabase.co',
+      EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_secret_misconfigured',
+    };
+  });
+  await page.goto('/');
+  await expect(
+    page.getByText(
+      'This installation is not configured. Ask your administrator to check the server settings.',
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(0);
+});
+
+test('the office card shows a clean street and postal-city address for saved locations', async ({
+  page,
+}) => {
+  const errors = await backend(page, {
+    office: true,
+    officeLabel:
+      '14, Rudolfplatz, Mauritiusviertel, Altstadt-Süd, Innenstadt, Köln, Nordrhein-Westfalen, 50674, Deutschland',
+  });
+  await signIn(page, 'Overview');
+  await page.getByRole('tab', { name: /Your team/ }).click();
+  await expect(page.getByText('Rudolfplatz 14 50674 Köln', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Mauritiusviertel/)).toHaveCount(0);
+  await page.screenshot({ path: '/tmp/forkcast-office-address.png' });
+  expect(errors).toEqual([]);
+});
+
+async function pushBrowser(page: Page, denied = false) {
+  await page.addInitScript(
+    ({ denied }) => {
+      globalThis.__FORKCAST_CONFIG__ = {
+        EXPO_PUBLIC_SUPABASE_URL: 'https://forkcast-test.supabase.co',
+        EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'test-public-key',
+        EXPO_PUBLIC_WEB_PUSH_KEY: 'B'.repeat(87),
+      };
+      let active = false;
+      (window as unknown as { pushPrompts: number }).pushPrompts = 0;
+      const subscription = {
+        endpoint: 'https://fcm.googleapis.com/fcm/send/browser-test',
+        toJSON: () => ({ keys: { p256dh: 'B'.repeat(87), auth: 'A'.repeat(22) } }),
+        unsubscribe: async () => {
+          active = false;
+          return true;
+        },
+      };
+      const registration = {
+        pushManager: {
+          getSubscription: async () => (active ? subscription : null),
+          subscribe: async () => {
+            active = true;
+            return subscription;
+          },
+        },
+      };
+      Object.defineProperty(navigator, 'serviceWorker', {
+        value: {
+          getRegistration: async () => registration,
+          register: async () => registration,
+          ready: Promise.resolve(registration),
+        },
+      });
+      Object.defineProperty(window, 'PushManager', { value: function () {} });
+      Object.defineProperty(window, 'Notification', {
+        value: {
+          requestPermission: async () => {
+            (window as unknown as { pushPrompts: number }).pushPrompts++;
+            return denied ? 'denied' : 'granted';
+          },
+        },
+      });
+    },
+    { denied },
+  );
+}
+test('web push is explicitly enabled and defaults to quiet hours, three updates and no payment spam', async ({
+  page,
+}) => {
+  await pushBrowser(page);
+  const errors = await backend(page);
+  await signIn(page, 'Overview');
+  await page.getByRole('tab', { name: /Your team/ }).click();
+  await page.getByRole('button', { name: 'Device notifications', exact: true }).click();
+  await expect(page.getByLabel('Quiet from (0–23)', { exact: true })).toHaveValue('22');
+  await expect(page.getByLabel('Maximum updates per day (1–3)', { exact: true })).toHaveValue('3');
+  await expect(
+    page.getByRole('checkbox', { name: 'Occasional unpaid reminders', exact: true }),
+  ).not.toBeChecked();
+  expect(
+    await page.evaluate(() => (window as unknown as { pushPrompts: number }).pushPrompts),
+  ).toBe(0);
+  await page.getByRole('button', { name: 'Enable on this device', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Disable on this device', exact: true }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() => (window as unknown as { pushPrompts: number }).pushPrompts),
+  ).toBe(1);
+  await page.getByLabel('Maximum updates per day (1–3)', { exact: true }).fill('1');
+  await page.getByLabel('Quiet from (0–23)', { exact: true }).fill('23');
+  const saving = page.waitForRequest('**/rpc/set_web_push_preferences');
+  await page.getByRole('button', { name: 'Save notification preferences', exact: true }).click();
+  expect((await saving).postDataJSON().settings).toMatchObject({
+    daily_limit: 1,
+    quiet_start: 23,
+    quiet_end: 8,
+    payments: false,
+    organizer: false,
+  });
+  await page.getByRole('button', { name: 'Disable on this device', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Enable on this device', exact: true }),
+  ).toBeVisible();
+  expect(errors).toEqual([]);
+});
+test('denied push permission stays opt-out and gives actionable help', async ({ page }) => {
+  await pushBrowser(page, true);
+  const errors = await backend(page);
+  await signIn(page, 'Overview');
+  await page.getByRole('tab', { name: /Your team/ }).click();
+  await page.getByRole('button', { name: 'Device notifications', exact: true }).click();
+  await page.getByRole('button', { name: 'Enable on this device', exact: true }).click();
+  await expect(
+    page.getByText(
+      'Notifications are blocked. Allow them in your browser settings to enable device alerts.',
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Disable on this device', exact: true }),
+  ).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+test('a device notification link opens its cooking event after sign-in', async ({ page }) => {
+  const errors = await backend(page, { roster: true });
+  await page.goto(`/?pushOrg=${orgId}&pushEvent=20000000-0000-0000-0000-000000000001`);
+  await page.getByLabel('Email', { exact: true }).fill('alice@example.test');
+  await page.getByLabel('Password', { exact: true }).fill('password123');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Questions & comments', exact: true }),
+  ).toBeVisible();
+  await expect(page).toHaveURL('http://127.0.0.1:8088/');
+  expect(errors).toEqual([]);
+});
+
+test.describe('German device notifications', () => {
+  test.use({ locale: 'de-DE', colorScheme: 'dark' });
+  test('push preferences follow the system language and stay opt-in', async ({ page }) => {
+    await pushBrowser(page);
+    const errors = await backend(page);
+    await page.goto('/');
+    await page.getByLabel('E-Mail', { exact: true }).fill('alice@example.test');
+    await page.getByLabel('Passwort', { exact: true }).fill('password123');
+    await page.getByRole('button', { name: 'Anmelden', exact: true }).click();
+    await page.getByRole('tab', { name: /Dein Team/ }).click();
+    await page.getByRole('button', { name: 'Gerätebenachrichtigungen', exact: true }).click();
+    await expect(page.getByLabel('Ruhe ab (0–23)', { exact: true })).toHaveValue('22');
+    await expect(page.getByLabel('Maximale Hinweise pro Tag (1–3)', { exact: true })).toHaveValue(
+      '3',
+    );
+    await expect(
+      page.getByRole('checkbox', { name: 'Gelegentliche Zahlungserinnerungen', exact: true }),
+    ).not.toBeChecked();
+    await page.getByRole('button', { name: 'Auf diesem Gerät aktivieren', exact: true }).click();
+    await expect(
+      page.getByRole('button', { name: 'Auf diesem Gerät deaktivieren', exact: true }),
+    ).toBeVisible();
+    expect(errors).toEqual([]);
+  });
 });

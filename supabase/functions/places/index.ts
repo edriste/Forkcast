@@ -104,6 +104,7 @@ async function getRegion(
       );
       url.searchParams.set('q', org.search_area);
       url.searchParams.set('format', 'jsonv2');
+      url.searchParams.set('addressdetails', '1');
       url.searchParams.set('limit', '1');
       const matches = await upstream(url.toString());
       if (!Array.isArray(matches) || !matches.length)
@@ -302,6 +303,7 @@ export async function handleRequest(request: Request) {
       );
       url.searchParams.set('q', query);
       url.searchParams.set('format', 'jsonv2');
+      url.searchParams.set('addressdetails', '1');
       url.searchParams.set('limit', '5');
       const locations = normalizeLocations(await upstream(url.toString()));
       const saved = await admin

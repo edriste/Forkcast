@@ -1,0 +1,28 @@
+# Copy alongside the upstream self-hosted/v0.8.2 docker-compose.yml as compose.forkcast.yml.
+# Requires Docker Compose >= 2.24.4 for !override / !reset.
+services:
+  api-gw:
+    ports: !override
+      - '127.0.0.1:8000:8000'
+  supavisor:
+    ports: !reset []
+  functions:
+    environment:
+      # places verifies the user's session with Auth and enforces membership itself.
+      # This bypasses only the legacy worker JWT pre-check, not application auth.
+      VERIFY_JWT: 'false'
+      OSM_USER_AGENT: ${OSM_USER_AGENT:?Set OSM_USER_AGENT with an operator contact}
+      OSM_NOMINATIM_URL: ${OSM_NOMINATIM_URL:-https://nominatim.openstreetmap.org/search}
+      OSM_OVERPASS_URL: ${OSM_OVERPASS_URL:-https://overpass-api.de/api/interpreter}
+      OPENROUTESERVICE_MATRIX_URL: ${OPENROUTESERVICE_MATRIX_URL:-}
+      OPENROUTESERVICE_API_KEY: ${OPENROUTESERVICE_API_KEY:-}
+  auth:
+    environment:
+      GOTRUE_PASSWORD_MIN_LENGTH: '8'
+      GOTRUE_MAILER_OTP_LENGTH: '6'
+      GOTRUE_MAILER_OTP_EXP: '3600'
+      GOTRUE_MAILER_TEMPLATES_CONFIRMATION: ${FORKCAST_CONFIRMATION_TEMPLATE_URL:?Set the public confirmation template URL}
+      GOTRUE_EXTERNAL_GOOGLE_ENABLED: ${GOOGLE_ENABLED:-false}
+      GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOTRUE_EXTERNAL_GOOGLE_SECRET: ${GOOGLE_SECRET:-}
+      GOTRUE_EXTERNAL_GOOGLE_REDIRECT_URI: ${API_EXTERNAL_URL}/callback

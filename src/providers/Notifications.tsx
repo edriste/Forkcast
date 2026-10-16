@@ -14,6 +14,7 @@ export type LunchNotification = {
     | 'payment_received'
     | 'payment_confirmed'
     | 'cooking_joined'
+    | 'cooking_reply'
     | 'order_started'
     | 'order_deadline'
     | 'order_placed'

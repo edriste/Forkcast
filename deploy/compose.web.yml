@@ -1,0 +1,11 @@
+name: forkcast-web
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: forkcast-web:local
+    restart: unless-stopped
+    env_file: ./web.env
+    ports:
+      - '127.0.0.1:8080:80'

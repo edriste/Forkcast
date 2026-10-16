@@ -1,3 +1,4 @@
+import { compactLocationLabel } from '../../supabase/functions/_shared/location';
 import React, { useCallback, useState } from 'react';
 import { Pressable, Text } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -49,7 +50,9 @@ export function CreateOrderScreen({
   const [menu, setMenu] = useState('');
   const [date, setDate] = useState(initial.date);
   const [time, setTime] = useState(initial.time);
-  const [address, setAddress] = useState(org.location_label ?? org.search_area);
+  const [address, setAddress] = useState(
+    compactLocationLabel(org.location_label ?? org.search_area),
+  );
   const [notes, setNotes] = useState('');
   const [paypal, setPaypal] = useState('');
   return (

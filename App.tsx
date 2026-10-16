@@ -1,3 +1,4 @@
+import { PushActivity } from './src/components/PushActivity';
 import React from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -13,6 +14,7 @@ function SignedIn() {
   const session = useSession();
   return (
     <OrganizationProvider key={session.user.id}>
+      <PushActivity />
       <AppNavigation />
     </OrganizationProvider>
   );

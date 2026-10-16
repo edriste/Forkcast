@@ -1,14 +1,20 @@
+import { usePushNavigation } from './components/PushNavigation';
 import { PlaceFiltersProvider } from './providers/PlaceFilters';
 import { FavoritesProvider } from './providers/Favorites';
 import { useSession } from './providers/Auth';
 import { useLocale } from './providers/Locale';
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { LiveUpdatesProvider } from './providers/LiveUpdates';
 import { NotificationsProvider } from './providers/Notifications';
 import { NotificationBell } from './components/NotificationBell';
 import { OrganizationSwitcher } from './components/OrganizationSwitcher';
 import { Pressable, View } from 'react-native';
-import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
+import {
+  NavigationContainer,
+  DefaultTheme,
+  DarkTheme,
+  useNavigationContainerRef,
+} from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -115,6 +121,9 @@ export function AppNavigation() {
   const { colors, dark } = useTheme();
 
   const orgs = useOrganizations();
+  const navigation = useNavigationContainerRef<RootStackParams>();
+  const [navigationReady, setNavigationReady] = useState(0);
+  usePushNavigation(navigation, navigationReady);
   // Keep the selected tab when fresh screens mount for a different organization.
   const activeTab = useRef<keyof MainTabParams>('Overview');
   if (orgs.loading) return <Loading />;
@@ -125,6 +134,8 @@ export function AppNavigation() {
         <FavoritesProvider key={user}>
           <NotificationsProvider>
             <NavigationContainer
+              ref={navigation}
+              onReady={() => setNavigationReady((value) => value + 1)}
               key={orgs.current.id}
               onStateChange={(state) => {
                 const tabs = state?.routes.find((route) => route.name === 'Tabs')?.state;

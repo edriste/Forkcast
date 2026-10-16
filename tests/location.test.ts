@@ -1,5 +1,9 @@
 import { expect, test } from 'vitest';
-import { normalizeLocations } from '../supabase/functions/_shared/location';
+import {
+  normalizeLocations,
+  compactLocationLabel,
+  officeAddressDisplay,
+} from '../supabase/functions/_shared/location';
 import { mapBounds } from '../supabase/functions/_shared/osm';
 test('location results reject invalid coordinates and labels', () => {
   expect(
@@ -25,4 +29,60 @@ test('map bounds show an office even with no reviewed restaurants', () => {
   ])!;
   expect(bounds[0]).toBeLessThan(13.4);
   expect(bounds[2]).toBeGreaterThan(13.5);
+});
+
+test('saved German office addresses become street and postal-city lines without guessing custom labels', () => {
+  const original =
+    '14, Rudolfplatz, Mauritiusviertel, Altstadt-Süd, Innenstadt, Köln, Nordrhein-Westfalen, 50674, Deutschland';
+  expect(compactLocationLabel(original)).toBe('Rudolfplatz 14, 50674 Köln, Deutschland');
+  expect(officeAddressDisplay(original)).toBe('Rudolfplatz 14\n50674 Köln');
+  expect(officeAddressDisplay('Rudolfplatz 14, 50674 Köln, Deutschland')).toBe(
+    'Rudolfplatz 14\n50674 Köln',
+  );
+  expect(officeAddressDisplay('Office, Floor 2, Berlin')).toBe('Office, Floor 2, Berlin');
+  expect(officeAddressDisplay('Berlin office')).toBe('Berlin office');
+  expect(
+    compactLocationLabel(
+      '14, Hauptstraße, Köln, Regierungsbezirk Köln, Nordrhein-Westfalen, 50674, Deutschland',
+    ),
+  ).toBe('Hauptstraße 14, 50674 Köln, Deutschland');
+});
+test('new address searches prefer structured street and city over administrative display names', () => {
+  expect(
+    normalizeLocations([
+      {
+        lat: '50.93',
+        lon: '6.94',
+        display_name: 'Very long district hierarchy',
+        address: {
+          road: 'Rudolfplatz',
+          house_number: '14',
+          postcode: '50674',
+          city: 'Köln',
+          suburb: 'Mauritiusviertel',
+          state: 'Nordrhein-Westfalen',
+          country: 'Deutschland',
+          country_code: 'de',
+        },
+      },
+    ]),
+  ).toEqual([
+    { label: 'Rudolfplatz 14, 50674 Köln, Deutschland', latitude: 50.93, longitude: 6.94 },
+  ]);
+  expect(
+    normalizeLocations([
+      {
+        lat: '51.5',
+        lon: '-0.1',
+        display_name: 'London',
+        address: {
+          road: 'Downing Street',
+          house_number: '10',
+          city: 'London',
+          country: 'United Kingdom',
+          country_code: 'gb',
+        },
+      },
+    ])[0].label,
+  ).toBe('10 Downing Street, London, United Kingdom');
 });

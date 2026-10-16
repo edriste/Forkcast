@@ -29,6 +29,7 @@ async function scenario(
   options: {
     cache?: object[];
     key?: boolean;
+    endpoint?: string;
     gate?: boolean;
     status?: number;
     matrix?: unknown;
@@ -38,6 +39,9 @@ async function scenario(
 ) {
   const original = globalThis.fetch;
   const previous = Deno.env.get('OPENROUTESERVICE_API_KEY');
+  const previousEndpoint = Deno.env.get('OPENROUTESERVICE_MATRIX_URL');
+  if (options.endpoint) Deno.env.set('OPENROUTESERVICE_MATRIX_URL', options.endpoint);
+  else Deno.env.delete('OPENROUTESERVICE_MATRIX_URL');
   if (options.key === false) Deno.env.delete('OPENROUTESERVICE_API_KEY');
   else Deno.env.set('OPENROUTESERVICE_API_KEY', 'test-secret-never-return');
   const calls: { url: string; body: any; headers: Headers }[] = [];
@@ -55,7 +59,9 @@ async function scenario(
     if (url.includes('claim_walking_request'))
       return Promise.resolve(result(options.gate !== false));
     if (url.includes('pause_walking_requests')) return Promise.resolve(result(null));
-    if (url === 'https://api.heigit.org/openrouteservice/v2/matrix/foot-walking')
+    if (
+      url === (options.endpoint || 'https://api.heigit.org/openrouteservice/v2/matrix/foot-walking')
+    )
       return Promise.resolve(
         result(options.matrix ?? { distances: [[1200]], durations: [[950]] }, options.status),
       );
@@ -73,11 +79,17 @@ async function scenario(
     return {
       output,
       calls,
-      provider: calls.filter((call) => call.url.includes('api.heigit.org')),
+      provider: calls.filter(
+        (call) =>
+          call.url ===
+          (options.endpoint || 'https://api.heigit.org/openrouteservice/v2/matrix/foot-walking'),
+      ),
       writes: calls.filter((call) => call.url.includes('walking_distance_cache') && call.body),
     };
   } finally {
     globalThis.fetch = original;
+    if (previousEndpoint === undefined) Deno.env.delete('OPENROUTESERVICE_MATRIX_URL');
+    else Deno.env.set('OPENROUTESERVICE_MATRIX_URL', previousEndpoint);
     if (previous === undefined) Deno.env.delete('OPENROUTESERVICE_API_KEY');
     else Deno.env.set('OPENROUTESERVICE_API_KEY', previous);
   }
@@ -201,5 +213,18 @@ Deno.test(
       ],
     });
     assertEquals(injected.output.places[0].walking, undefined);
+  },
+);
+
+Deno.test(
+  'operator-hosted routing can use a private endpoint without a hosted-provider key',
+  async () => {
+    const result = await scenario({
+      key: false,
+      endpoint: 'http://routing.test/v2/matrix/foot-walking',
+    });
+    assertEquals(result.output.places[0].walking?.meters, 1200);
+    assertEquals(result.provider.length, 1);
+    assertEquals(result.provider[0].headers.get('Authorization'), null);
   },
 );

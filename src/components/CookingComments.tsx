@@ -1,4 +1,5 @@
-import React, { useCallback, useState } from 'react';
+import { useIsFocused } from '@react-navigation/native';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import { cookingComments } from '../lib/cookingComments';
 import { supabase } from '../lib/supabase';
@@ -24,6 +25,14 @@ export function CookingComments({
     ['cooking', 'organization'],
   );
   const action = useAction();
+  const focused = useIsFocused();
+  const latest = resource.data?.comments.at(-1)?.id;
+  useEffect(() => {
+    if (focused && latest)
+      void supabase
+        .rpc('mark_cooking_comments_seen', { event: eventId, last_comment: latest })
+        .then(() => {});
+  }, [focused, latest, eventId]);
   const [draft, setDraft] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);

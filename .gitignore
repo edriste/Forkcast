@@ -48,3 +48,6 @@ playwright-report/
 # Generated from the installed MapLibre package
 /public/maplibre-worker.js
 /public/maplibre-LICENSE.txt
+
+# Self-hosted deployment configuration and secrets
+/deploy/*.env
