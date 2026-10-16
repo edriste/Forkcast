@@ -1,8 +1,8 @@
 FROM node:22-alpine
 WORKDIR /app
-COPY package.json package-lock.json ./
-# pg is part of the checked-in development dependencies; do not run the app's postinstall here.
-RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts
+COPY deploy/package.json deploy/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev --ignore-scripts
 COPY scripts/migrate.mjs scripts/migrate.mjs
 COPY supabase/migrations supabase/migrations
+USER node
 ENTRYPOINT ["node", "scripts/migrate.mjs"]

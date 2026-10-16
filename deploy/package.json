@@ -1,0 +1,9 @@
+{
+  "name": "forkcast-deployment-tools",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "pg": "8.23.1",
+    "web-push": "3.6.7"
+  }
+}

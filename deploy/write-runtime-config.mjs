@@ -1,4 +1,6 @@
 import { writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 const allowed = [
   'SUPABASE_URL',
   'SUPABASE_PUBLISHABLE_KEY',
@@ -31,7 +33,7 @@ export function runtimeConfiguration(env) {
   }
   return `globalThis.__FORKCAST_CONFIG__ = ${JSON.stringify(config).replace(/</g, '\\u003c')};\n`;
 }
-if (process.argv[1]?.endsWith('/write-runtime-config.mjs')) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
     writeFileSync(
       process.argv[2] || '/usr/share/nginx/html/runtime-config.js',

@@ -51,10 +51,10 @@ docker compose -f deploy/compose.push.yml up -d
 
 The worker joins the official Supabase Docker network. If its name differs, set `FORKCAST_SUPABASE_NETWORK` for Compose. It has no inbound port. It scans the database every 30 seconds and sends encrypted Web Push directly to browser push services using VAPID; no Supabase Cloud cron, Expo Push Service or separate notification SaaS account is needed. Browser delivery still travels through the browser vendor's push infrastructure, with outbound HTTPS required. The supported endpoint allowlist covers Chrome/FCM, Firefox/Mozilla and Safari/Apple push services; arbitrary endpoints/private addresses cannot be registered as outbound HTTP targets.
 
-For development with Node 22.14+, install the isolated sender dependencies and generate keys with:
+For development with Node 22.14+, install the deployment tool dependencies and generate keys with:
 
 ```sh
-npm ci --prefix deploy/push
+npm ci --prefix deploy
 node deploy/push/keys.mjs
 ```
 

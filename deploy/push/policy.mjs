@@ -1,4 +1,3 @@
-export const categories = ['cooking', 'deadlines', 'arrivals', 'replies', 'payments', 'organizer'];
 export function localClock(now, timezone) {
   try {
     new Intl.DateTimeFormat('en', { timeZone: timezone }).format(now);
