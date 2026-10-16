@@ -85,6 +85,17 @@ test('prepared web exports have matching release markers, standard icons and rep
       expect(png.readUInt32BE(20)).toBe(size);
       expect(png.equals(await readFile(`assets/app-icon-${size}.png`))).toBe(true);
     }
+    for (const [destination, source] of [
+      ['manifest.webmanifest', 'public/manifest.webmanifest'],
+      ['service-worker.js', 'public/service-worker.js'],
+      ['auth/confirmation.html', 'supabase/templates/confirmation.html'],
+      ['LICENSE.txt', 'LICENSE'],
+      ['THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_NOTICES.md'],
+    ]) {
+      expect(await readFile(resolve(directory, destination), 'utf8')).toBe(
+        await readFile(source, 'utf8'),
+      );
+    }
     const manifest = JSON.parse(await readFile('public/manifest.webmanifest', 'utf8'));
     expect(manifest.icons.map((icon: { sizes: string }) => icon.sizes)).toEqual([
       '192x192',
@@ -102,6 +113,22 @@ test('prepared web exports have matching release markers, standard icons and rep
     expect(JSON.parse(await readFile(resolve(directory, 'version.json'), 'utf8')).version).not.toBe(
       first,
     );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('web preparation accepts head attributes and rejects missing heads before rewriting the export', async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), 'forkcast-web-head-'));
+  try {
+    const index = resolve(directory, 'index.html');
+    const invalid = '<html><body>No head</body></html>';
+    await writeFile(index, invalid);
+    expect(() => prepareWeb(directory)).toThrow('must contain a <head>');
+    expect(await readFile(index, 'utf8')).toBe(invalid);
+    await writeFile(index, '<html><HEAD lang="en"></HEAD><body></body></html>');
+    prepareWeb(directory);
+    expect(await readFile(index, 'utf8')).toContain('<HEAD lang="en"><!--forkcast-release-->');
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

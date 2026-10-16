@@ -74,6 +74,20 @@ test(
       await expect(migrate(client, directory, () => {})).rejects.toThrow(
         'Applied migration changed',
       );
+      await writeFile(
+        resolve(directory, '001_first.sql'),
+        'create table first_table(id integer primary key);',
+      );
+      await writeFile(resolve(directory, '000_earlier.sql'), 'create table earlier_table(id int);');
+      await expect(migrate(client, directory, () => {})).rejects.toThrow('Out-of-order migration');
+      expect(
+        (await db.query("select to_regclass('public.earlier_table') as name")).rows[0].name,
+      ).toBeNull();
+      await rm(resolve(directory, '000_earlier.sql'));
+      await rm(resolve(directory, '001_first.sql'));
+      await expect(migrate(client, directory, () => {})).rejects.toThrow(
+        'Applied migration changed or is missing',
+      );
     } finally {
       await db.close();
       await rm(directory, { recursive: true, force: true });
@@ -109,3 +123,21 @@ test(
     }
   },
 );
+
+test('the migration runner refuses an existing untracked Forkcast schema', async () => {
+  const db = new PGlite();
+  const client = {
+    query: async (sql, params) => (params ? db.query(sql, params) : (await db.exec(sql)).at(-1)),
+  };
+  try {
+    await db.exec('create table public.profiles(id integer);');
+    await expect(migrate(client, undefined, () => {})).rejects.toThrow(
+      'Keep using its original migration workflow',
+    );
+    expect(
+      (await db.query("select to_regnamespace('forkcast_private') as name")).rows[0].name,
+    ).toBeNull();
+  } finally {
+    await db.close();
+  }
+});
