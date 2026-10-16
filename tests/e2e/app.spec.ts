@@ -4332,3 +4332,56 @@ test.describe('German device notifications', () => {
     expect(errors).toEqual([]);
   });
 });
+
+test('web updates preserve drafts until explicit reload, allow postponing and advertise later releases', async ({
+  page,
+}) => {
+  const errors = await backend(page);
+  let advertised = 'b'.repeat(64);
+  await page.route('**/version.json', (route) => route.fulfill({ json: { version: advertised } }));
+  let loads = 0;
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) loads++;
+  });
+  await page.goto('/');
+  await expect(page.getByRole('alert').filter({ hasText: 'An update is available' })).toBeVisible();
+  await page.getByLabel('Email', { exact: true }).fill('unfinished@example.test');
+  await page.getByRole('button', { name: 'Later', exact: true }).click();
+  await expect(page.getByText('An update is available', { exact: true })).toHaveCount(0);
+  // Repeated checks of a postponed release stay quiet.
+  const check = page.waitForResponse('**/version.json');
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await check;
+  await expect(page.getByText('An update is available', { exact: true })).toHaveCount(0);
+  advertised = 'c'.repeat(64);
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect(page.getByText('An update is available', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Email', { exact: true })).toHaveValue('unfinished@example.test');
+  expect(loads).toBe(1);
+  await expect(
+    page.getByText('Reload when you are ready. Unfinished changes will be lost.', { exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Reload app', exact: true }).click();
+  await expect(page.getByLabel('Email', { exact: true })).toHaveValue('');
+  expect(loads).toBe(2);
+  expect(errors).toEqual([]);
+});
+
+test.describe('German web updates', () => {
+  test.use({ locale: 'de-DE', colorScheme: 'dark' });
+  test('an update prompt follows the system language without blocking sign-in', async ({
+    page,
+  }) => {
+    const errors = await backend(page);
+    await page.route('**/version.json', (route) =>
+      route.fulfill({ json: { version: 'b'.repeat(64) } }),
+    );
+    await page.goto('/');
+    await expect(page.getByText('Ein Update ist verfügbar', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'App neu laden', exact: true })).toBeVisible();
+    await page.getByLabel('E-Mail', { exact: true }).fill('unfinished@example.test');
+    await page.getByRole('button', { name: 'Später', exact: true }).click();
+    await expect(page.getByLabel('E-Mail', { exact: true })).toHaveValue('unfinished@example.test');
+    expect(errors).toEqual([]);
+  });
+});

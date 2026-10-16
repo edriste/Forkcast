@@ -1,4 +1,5 @@
 import { PushActivity } from './src/components/PushActivity';
+import { AppUpdateNotice } from './src/components/AppUpdateNotice';
 import React from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -28,6 +29,7 @@ function AppContent() {
         edges={['top', 'left', 'right', 'bottom']}
       >
         <StatusBar style={dark ? 'light' : 'dark'} />
+        <AppUpdateNotice />
         <CreditsProvider>
           <InviteProvider>
             <AuthProvider signedOut={<AuthScreen />}>

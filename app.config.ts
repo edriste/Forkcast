@@ -7,8 +7,8 @@ const config: ExpoConfig = {
   version: '1.0.0',
   orientation: 'portrait',
   userInterfaceStyle: 'automatic',
-  icon: './assets/icon.png',
-  web: { favicon: './assets/icon.png', themeColor: '#FF8A24' },
+  icon: './assets/app-icon.png',
+  web: { favicon: './assets/app-icon-192.png', themeColor: '#FF8A24' },
   locales: {
     en: {
       ios: {

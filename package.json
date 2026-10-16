@@ -54,7 +54,7 @@
     "check": "npm run typecheck && npm test",
     "format": "prettier --write App.tsx app.config.ts index.ts src tests supabase/functions README.md docs package.json tsconfig.json playwright.config.ts .prettierrc.json vitest.config.mts scripts",
     "format:check": "prettier --check App.tsx app.config.ts index.ts src tests supabase/functions README.md docs package.json tsconfig.json playwright.config.ts .prettierrc.json vitest.config.mts scripts",
-    "test:ui:build": "EXPO_NO_DOTENV=1 EXPO_PUBLIC_SUPABASE_URL=https://forkcast-test.supabase.co EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=test-public-key expo export --clear --platform web --output-dir /tmp/forkcast-test-web",
+    "test:ui:build": "EXPO_NO_DOTENV=1 EXPO_PUBLIC_SUPABASE_URL=https://forkcast-test.supabase.co EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=test-public-key expo export --clear --platform web --output-dir /tmp/forkcast-test-web && node scripts/prepare-web.mjs /tmp/forkcast-test-web",
     "test:ui": "playwright test",
     "edge:check": "deno check supabase/functions/places/index.ts",
     "postinstall": "node scripts/copy-map-worker.mjs",
