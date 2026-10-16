@@ -51,3 +51,6 @@ playwright-report/
 
 # Self-hosted deployment configuration and secrets
 /deploy/*.env
+
+# Local Cloudflare development state
+.wrangler/

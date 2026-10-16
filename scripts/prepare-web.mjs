@@ -33,6 +33,7 @@ export function prepareWeb(directory = 'dist') {
   copyFileSync('assets/app-icon-192.png', resolve(output, 'icon-192.png'));
   copyFileSync('assets/app-icon-512.png', resolve(output, 'icon-512.png'));
   copyFileSync('assets/app-icon-192.png', resolve(output, 'push-icon.png'));
+  copyFileSync('public/_headers', resolve(output, '_headers'));
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   prepareWeb(process.argv[2]);

@@ -8,6 +8,7 @@ node_modules
 supabase/.temp
 supabase/.branches
 .expo
+.wrangler
 dist
 android
 ios

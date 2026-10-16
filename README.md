@@ -8,6 +8,8 @@ The MVP includes Google signup/login with email/password as a fallback, multiple
 
 The primary deployment path runs Forkcast and Supabase on your own server with persistent Docker services. See **[Self-hosting Forkcast](docs/self-hosting.md)** for the web image, runtime configuration, backend/SMTP/OAuth setup, migrations, HTTPS, backups and upgrades. No Supabase Cloud or EAS account is required. Public OSM/map/routing providers remain configurable external dependencies by default.
 
+For a Cloudflare-hosted PWA with a separate Supabase backend, see [Cloudflare setup](docs/cloudflare.md). The included Wrangler configuration supplies the required compatibility date, static export directory and SPA routing.
+
 ## Development requirements and first run
 
 - Node 22.14 or newer, npm.
